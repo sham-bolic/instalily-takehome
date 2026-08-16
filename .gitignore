@@ -1,0 +1,48 @@
+# AI coding assistants and agent artifacts
+.agents/
+.ai/
+.aider*
+.claude/
+.codex/
+.continue/
+.copilot/
+.cursor/
+.gemini/
+.pi/
+.roo/
+.wayfinder/
+.windsurf/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.github/copilot-instructions.md
+
+# AI-generated scratch files and transcripts
+.aiignore
+*.ai-chat.*
+*.ai-transcript.*
+ai-notes/
+prompts.local/
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Dependencies and generated output
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+dist/
+build/
+coverage/
