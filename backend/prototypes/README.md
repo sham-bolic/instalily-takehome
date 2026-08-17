@@ -6,9 +6,9 @@ The sourcing flow is split into independent probes so each stage can be tested b
 
 1. Event sourcing: ICP in, event candidates out
 2. Company sourcing: selected event in, company candidates out
-3. Company deep dive: selected company in, evidence out
+3. Company enrichment: selected company in, factual company profile out
 
-Event sourcing exists so far.
+Event sourcing and company sourcing exist so far.
 
 ## Setup
 
@@ -47,6 +47,25 @@ Each run replaces the previous result file, so later prototypes can use it witho
 
 The prototype searches directly for participant pages on official event websites. It makes one Tavily request using `basic` search and caps the response at three results to limit credit usage. `company_source` is `null` when a result does not contain a recognizable participant list. No event is automatically selected. First inspect the saved results and explicitly pass an event with an exhibitor directory to company sourcing.
 
+## Test company sourcing
+
+Pass a selected event and its official exhibitor-directory URL as separate command-line arguments:
+
+```bash
+npm run company-sourcing -- \
+  "MRO Europe 2026" \
+  "https://exhibitor.mroeurope.aviationweek.com/eu26/public/Exhibitors.aspx?CatID=1000252"
+```
+
+This stage does not receive or evaluate the ICP. It fetches the official directory directly, extracts up to ten exhibitors, and preserves the directory URL as attendance evidence. When the directory links to exhibitor profiles, it also fetches those profiles and extracts the exhibitor's stated company website as `company_url`. It does not call Tavily, so rerunning it does not consume search credits.
+
+`profile_url` identifies the exhibitor's event profile. `company_url` identifies the company's own website and should be used as the input to enrichment. If the directory does not publish a company website, `company_url` remains `null` rather than being guessed.
+
+Results are saved to `backend/prototypes/results/company-sourcing.json`. Each run replaces the previous company result file.
+
 ## Known limitations
 
 - Event search can return third-party participant-list vendors instead of the event's own website. The current prototype preserves the URL but does not yet verify that the event owns its domain.
+- Company extraction currently recognizes linked exhibitor profiles and HTML tables with company and booth columns. Other directory layouts will need additional extraction strategies.
+- Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. Resolving those companies would require a separate identity-resolution step or external API.
+- Company enrichment, qualification, and decision-maker identification are not implemented yet.

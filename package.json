@@ -4,10 +4,12 @@
   "type": "module",
   "scripts": {
     "event-sourcing": "node --env-file=.env backend/prototypes/event-sourcing.ts",
+    "company-sourcing": "node backend/prototypes/company-sourcing.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tavily/core": "0.7.7"
+    "@tavily/core": "0.7.7",
+    "cheerio": "1.1.2"
   },
   "devDependencies": {
     "@types/node": "26.0.0",
