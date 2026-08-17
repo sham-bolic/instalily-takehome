@@ -30,6 +30,14 @@ The lean SQLite model contains runs, immutable stage artifacts, and assembled co
 
 Each standalone stage command creates a `probe` run and records its input and output. Technical failures are recorded too, so a failed call can be inspected. Apollo enrichment reuses the latest successful artifact for a domain unless `--refresh` is passed. The raw Apollo response remains a stage artifact and is not treated as a normalized company profile.
 
+Open the minimal observability dashboard with:
+
+```bash
+npm run dashboard
+```
+
+Then visit [http://localhost:4173](http://localhost:4173). It shows run status, timing, stage inputs and outputs, errors, providers, and assembled company profiles. Set `PORT` to use another port.
+
 For terminal-based inspection, list all runs or inspect one run with:
 
 ```bash
