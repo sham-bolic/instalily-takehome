@@ -6,6 +6,7 @@
     "event-sourcing": "node --env-file=.env backend/prototypes/event-sourcing.ts",
     "company-sourcing": "node backend/prototypes/company-sourcing.ts",
     "company-enrichment": "node --env-file=.env backend/prototypes/company-enrichment.ts",
+    "pipeline": "node --env-file=.env backend/prototypes/pipeline.ts",
     "dashboard": "node backend/prototypes/dashboard.ts",
     "db:inspect": "node backend/prototypes/inspect-pipeline.ts",
     "test": "node --test backend/**/*.test.ts",
