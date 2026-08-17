@@ -8,7 +8,7 @@ The sourcing flow is split into independent probes so each stage can be tested b
 2. Company sourcing: selected event in, company candidates out
 3. Company enrichment: selected company in, factual company profile out
 
-Event sourcing and company sourcing exist so far.
+All three stages now exist. Qualification against an ICP remains a separate future stage.
 
 ## Setup
 
@@ -18,7 +18,7 @@ Install the dependencies:
 npm install
 ```
 
-Copy the example environment file and add your Tavily key:
+Copy the example environment file and add the key required by the stage you want to run:
 
 ```bash
 cp .env.example .env
@@ -63,9 +63,30 @@ This stage does not receive or evaluate the ICP. It fetches the official directo
 
 Results are saved to `backend/prototypes/results/company-sourcing.json`. Each run replaces the previous company result file.
 
+## Test company enrichment
+
+Pass an official company URL directly:
+
+```bash
+npm run company-enrichment -- "https://www.abc-int.it"
+```
+
+The prototype derives the domain and sends the website and domain to Apollo. It does not load company-sourcing results, accept a company name, or fall back to name-based matching. Connecting a sourced company to this stage is the future orchestrator's responsibility.
+
+The response is deliberately not normalized yet. Until real Apollo responses have been inspected, the result contains the request metadata and complete raw provider response. The ICP is not an input because this stage only collects facts.
+
+Each result is saved separately under `backend/prototypes/results/company-enrichment/<domain>.json`. A saved result is reused without calling Apollo again. To deliberately spend another credit and replace it, pass `--refresh`:
+
+```bash
+npm run company-enrichment -- "https://www.abc-int.it" --refresh
+```
+
+Apollo charges one credit per organization enrichment. The script makes no request when `APOLLO_API_KEY` is missing or a cached result exists. The persisted provider response should be inspected before deciding which fields to normalize.
+
 ## Known limitations
 
 - Event search can return third-party participant-list vendors instead of the event's own website. The current prototype preserves the URL but does not yet verify that the event owns its domain.
 - Company extraction currently recognizes linked exhibitor profiles and HTML tables with company and booth columns. Other directory layouts will need additional extraction strategies.
 - Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. Resolving those companies would require a separate identity-resolution step or external API.
-- Company enrichment, qualification, and decision-maker identification are not implemented yet.
+- Apollo fields can be absent, especially for small or private companies. Missing values remain `null`; the prototype does not infer them or fall back to another provider.
+- Company enrichment does not yet search company websites, qualify companies against an ICP, or identify decision-makers.
