@@ -1,8 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { PipelineDatabase } from "./pipeline-database.ts";
+import { runStageProbe } from "./stage-probe.ts";
 
-const ENRICHMENT_RESULTS_DIRECTORY =
-  "backend/prototypes/results/company-enrichment";
 const APOLLO_ENRICHMENT_URL =
   "https://api.apollo.io/api/v1/organizations/enrich";
 
@@ -24,27 +22,6 @@ function normalizeCompanyUrl(companyUrl: string): string {
 function extractDomain(companyUrl: string): string {
   const hostname = new URL(companyUrl).hostname.toLowerCase();
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
-}
-
-function enrichmentPath(domain: string): string {
-  return `${ENRICHMENT_RESULTS_DIRECTORY}/${domain}.json`;
-}
-
-async function loadCachedEnrichment(path: string): Promise<unknown | null> {
-  try {
-    return JSON.parse(await readFile(path, "utf8")) as unknown;
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return null;
-    }
-
-    throw error;
-  }
 }
 
 async function fetchApolloOrganization(
@@ -72,14 +49,6 @@ async function fetchApolloOrganization(
   return body;
 }
 
-async function saveEnrichment(
-  path: string,
-  enrichment: unknown,
-): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(enrichment, null, 2)}\n`);
-}
-
 async function main(): Promise<void> {
   const argumentsWithoutRefresh = process.argv
     .slice(2)
@@ -96,36 +65,51 @@ async function main(): Promise<void> {
 
   const companyUrl = normalizeCompanyUrl(argumentsWithoutRefresh[0]);
   const domain = extractDomain(companyUrl);
-  const resultsPath = enrichmentPath(domain);
+  const database = new PipelineDatabase(process.env.PIPELINE_DATABASE_PATH);
 
-  if (!refresh) {
-    const cached = await loadCachedEnrichment(resultsPath);
-    if (cached) {
-      console.log(`Using cached enrichment at ${resultsPath}`);
+  try {
+    if (!refresh) {
+      const cached = database.findLatestCompletedStageArtifact({
+        stage: "company_enrichment",
+        companyDomain: domain,
+      });
+      if (cached) {
+        console.log(`Using cached Apollo enrichment from run ${cached.runId}`);
+        return;
+      }
+    }
+
+    const apiKey = process.env.APOLLO_API_KEY;
+    if (!apiKey) {
+      console.error("Set APOLLO_API_KEY in .env before requesting enrichment.");
+      process.exitCode = 2;
       return;
     }
+
+    const request = { domain, website: companyUrl };
+    const { runId } = await runStageProbe(database, {
+      stage: "company_enrichment",
+      label: `Company enrichment: ${domain}`,
+      companyDomain: domain,
+      input: request,
+      provider: "apollo",
+      execute: async () => {
+        const providerResponse = await fetchApolloOrganization(apiKey, request);
+        return {
+          enriched_at: new Date().toISOString(),
+          provider: {
+            name: "apollo",
+            endpoint: APOLLO_ENRICHMENT_URL,
+            request,
+          },
+          provider_response: providerResponse,
+        };
+      },
+    });
+    console.log(`Saved Apollo enrichment to SQLite run ${runId}`);
+  } finally {
+    database.close();
   }
-
-  const apiKey = process.env.APOLLO_API_KEY;
-  if (!apiKey) {
-    console.error("Set APOLLO_API_KEY in .env before requesting enrichment.");
-    process.exitCode = 2;
-    return;
-  }
-
-  const request = { domain, website: companyUrl };
-  const providerResponse = await fetchApolloOrganization(apiKey, request);
-
-  await saveEnrichment(resultsPath, {
-    enriched_at: new Date().toISOString(),
-    provider: {
-      name: "apollo",
-      endpoint: APOLLO_ENRICHMENT_URL,
-      request,
-    },
-    provider_response: providerResponse,
-  });
-  console.log(`Saved Apollo enrichment to ${resultsPath}`);
 }
 
 await main();

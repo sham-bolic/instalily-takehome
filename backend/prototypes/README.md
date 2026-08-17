@@ -24,6 +24,19 @@ Copy the example environment file and add the key required by the stage you want
 cp .env.example .env
 ```
 
+## SQLite persistence
+
+The lean SQLite model contains runs, immutable stage artifacts, and assembled company profiles. A run can represent a complete pipeline, an independently executed probe, or a cached demo. Flexible provider responses are stored as JSON artifacts inside SQLite instead of being forced into a fixed schema.
+
+Each standalone stage command creates a `probe` run and records its input and output. Technical failures are recorded too, so a failed call can be inspected. Apollo enrichment reuses the latest successful artifact for a domain unless `--refresh` is passed. The raw Apollo response remains a stage artifact and is not treated as a normalized company profile.
+
+For terminal-based inspection, list all runs or inspect one run with:
+
+```bash
+npm run db:inspect
+npm run db:inspect -- 1
+```
+
 ## Test event sourcing
 
 Pass the ICP as a command-line argument:
@@ -33,7 +46,7 @@ npm run event-sourcing -- \
   "Companies making durable large-format signage, vehicle wraps, architectural graphics, and protective graphic films"
 ```
 
-The npm script loads `.env` into `process.env`, and the prototype reads `process.env.TAVILY_API_KEY`. It saves the response to `backend/prototypes/results/event-sourcing.json`, including:
+The npm script loads `.env` into `process.env`, and the prototype reads `process.env.TAVILY_API_KEY`. It saves the response as a SQLite stage artifact, including:
 
 - When the search ran
 - The external ICP
@@ -43,7 +56,7 @@ The npm script loads `.env` into `process.env`, and the prototype reads `process
 - A public company-source URL when the result is an exhibitor, sponsor, speaker, or participant list
 - The source summary and relevance score
 
-Each run replaces the previous result file, so later prototypes can use it without calling Tavily again.
+Each execution remains available under its own probe run.
 
 The prototype searches directly for participant pages on official event websites. It makes one Tavily request using `basic` search and caps the response at three results to limit credit usage. `company_source` is `null` when a result does not contain a recognizable participant list. No event is automatically selected. First inspect the saved results and explicitly pass an event with an exhibitor directory to company sourcing.
 
@@ -61,7 +74,7 @@ This stage does not receive or evaluate the ICP. It fetches the official directo
 
 `profile_url` identifies the exhibitor's event profile. `company_url` identifies the company's own website and should be used as the input to enrichment. If the directory does not publish a company website, `company_url` remains `null` rather than being guessed.
 
-Results are saved to `backend/prototypes/results/company-sourcing.json`. Each run replaces the previous company result file.
+Results are saved as a SQLite stage artifact under a new probe run.
 
 ## Test company enrichment
 
@@ -75,7 +88,7 @@ The prototype derives the domain and sends the website and domain to Apollo. It 
 
 The response is deliberately not normalized yet. Until real Apollo responses have been inspected, the result contains the request metadata and complete raw provider response. The ICP is not an input because this stage only collects facts.
 
-Each result is saved separately under `backend/prototypes/results/company-enrichment/<domain>.json`. A saved result is reused without calling Apollo again. To deliberately spend another credit and replace it, pass `--refresh`:
+The latest successful SQLite artifact for a domain is reused without calling Apollo again. To deliberately spend another credit and record a fresh artifact, pass `--refresh`:
 
 ```bash
 npm run company-enrichment -- "https://www.abc-int.it" --refresh

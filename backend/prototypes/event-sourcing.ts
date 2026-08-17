@@ -1,11 +1,10 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-
 import { tavily } from "@tavily/core";
+
+import { PipelineDatabase } from "./pipeline-database.ts";
+import { runStageProbe } from "./stage-probe.ts";
 
 const SEARCH_DEPTH = "basic";
 const MAX_RESULTS = 3;
-const RESULTS_PATH = "backend/prototypes/results/event-sourcing.json";
 
 type SearchResult = Awaited<ReturnType<typeof searchTavily>>["results"][number];
 type CompanySourceType =
@@ -83,11 +82,6 @@ async function findEvents(apiKey: string, icp: string) {
   };
 }
 
-async function saveResults(results: Awaited<ReturnType<typeof findEvents>>) {
-  await mkdir(dirname(RESULTS_PATH), { recursive: true });
-  await writeFile(RESULTS_PATH, `${JSON.stringify(results, null, 2)}\n`);
-}
-
 async function main(): Promise<void> {
   const icp = process.argv.slice(2).join(" ").trim();
   if (!icp) {
@@ -105,9 +99,21 @@ async function main(): Promise<void> {
     return;
   }
 
-  const results = await findEvents(apiKey, icp);
-  await saveResults(results);
-  console.log(`Saved ${results.events.length} results to ${RESULTS_PATH}`);
+  const database = new PipelineDatabase(process.env.PIPELINE_DATABASE_PATH);
+  try {
+    const { runId, output } = await runStageProbe(database, {
+      stage: "event_sourcing",
+      label: "Event sourcing",
+      input: { icp },
+      provider: "tavily",
+      execute: () => findEvents(apiKey, icp),
+    });
+    console.log(
+      `Saved ${output.events.length} event candidates to SQLite run ${runId}`,
+    );
+  } finally {
+    database.close();
+  }
 }
 
 await main();
