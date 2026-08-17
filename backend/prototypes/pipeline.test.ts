@@ -3,8 +3,7 @@ import { test } from "node:test";
 
 import { findCompanies } from "./company-sourcing.ts";
 import {
-  type CompanyQualifier,
-  type QualificationAssessment,
+  type CompanyQualification,
   type QualificationInput,
 } from "./company-qualification.ts";
 import { findEvents } from "./event-sourcing.ts";
@@ -79,27 +78,23 @@ function enrichment(companyUrl: string) {
   };
 }
 
-function qualification(score = 75): QualificationAssessment {
+function qualification(
+  fit: CompanyQualification["fit"] = "high",
+  confidence: CompanyQualification["confidence"] = "medium",
+): CompanyQualification {
   return {
-    summary: "The company fits the supplied ICP.",
-    criteria: [],
-    confidence: "medium",
-    confidenceRationale: "Some useful company evidence was supplied.",
-    fit: score >= 70 ? "high" : score >= 40 ? "medium" : "low",
-    calculatedScore: score,
-    rubricVersion: "dupont-tedlar-v1",
-    promptVersion: "dupont-tedlar-qualification-v1",
-    model: { provider: "test", name: "test-model" },
-    usage: { inputTokens: 10, outputTokens: 10 },
-    assessedAt: "2026-08-17T00:00:00.000Z",
+    fit,
+    confidence,
+    rationale: "The company fits the supplied ICP.",
+    evidence: ["The company makes durable graphics."],
   };
 }
 
 function qualifier(
-  assess: (input: QualificationInput) => Promise<QualificationAssessment> =
+  assess: (input: QualificationInput) => Promise<CompanyQualification> =
     async () => qualification(),
-): CompanyQualifier {
-  return { provider: "test", model: "test-model", assess };
+): (input: QualificationInput) => Promise<CompanyQualification> {
+  return assess;
 }
 
 test("runs the highest-scoring usable event and isolates company failures", async () => {
@@ -144,7 +139,10 @@ test("runs the highest-scoring usable event and isolates company failures", asyn
           if (name === "Company 3") {
             throw new Error("Gemini quota exhausted");
           }
-          return qualification(name === "Company 1" ? 90 : 70);
+          if (name === "Company 1") {
+            return qualification("high", "medium");
+          }
+          return qualification("medium", name === "Company 5" ? "high" : "low");
         }),
       },
     );
@@ -167,23 +165,20 @@ test("runs the highest-scoring usable event and isolates company failures", asyn
           companyName: "Company 1",
           fit: "high",
           confidence: "medium",
-          score: 90,
         },
         {
           rank: 2,
-          domain: "company-4.example",
-          companyName: "Company 4",
-          fit: "high",
-          confidence: "medium",
-          score: 70,
+          domain: "company-5.example",
+          companyName: "Company 5",
+          fit: "medium",
+          confidence: "high",
         },
         {
           rank: 3,
-          domain: "company-5.example",
-          companyName: "Company 5",
-          fit: "high",
-          confidence: "medium",
-          score: 70,
+          domain: "company-4.example",
+          companyName: "Company 4",
+          fit: "medium",
+          confidence: "low",
         },
       ],
     });

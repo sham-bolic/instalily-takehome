@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 
 import { enrichCompany } from "./company-enrichment.ts";
 import { findCompanies } from "./company-sourcing.ts";
-import { createGeminiCompanyQualifier } from "./company-qualification.ts";
+import { qualifyCompany } from "./company-qualification.ts";
 import { findEvents } from "./event-sourcing.ts";
 import { PipelineDatabase } from "./pipeline-database.ts";
 import { PipelineRun } from "./pipeline-run.ts";
@@ -118,10 +118,7 @@ async function main(): Promise<void> {
           }
           return enrichCompany(apiKey, companyUrl);
         },
-        qualifyCompany: createGeminiCompanyQualifier({
-          apiKey: geminiApiKey,
-          model: process.env.GEMINI_MODEL,
-        }),
+        qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),
       },
     );
     console.log(

@@ -1,8 +1,8 @@
 import { extractDomain } from "./company-enrichment.ts";
 import { findCompanies } from "./company-sourcing.ts";
 import {
-  type CompanyQualifier,
-  type QualificationAssessment,
+  type CompanyQualification,
+  type QualificationInput,
 } from "./company-qualification.ts";
 import { findEvents } from "./event-sourcing.ts";
 import { type CompanyProfile } from "./pipeline-database.ts";
@@ -22,7 +22,9 @@ export type PipelineDependencies = {
   findEvents: (icp: string) => Promise<EventDiscovery>;
   findCompanies: (event: string, directoryUrl: string) => Promise<CompanySourcing>;
   enrichCompany: (companyUrl: string) => Promise<Enrichment>;
-  qualifyCompany: CompanyQualifier;
+  qualifyCompany: (
+    input: QualificationInput,
+  ) => Promise<CompanyQualification>;
 };
 
 export type EnrichmentCounts = {
@@ -41,9 +43,8 @@ export type RankedCompany = {
   rank: number;
   domain: string;
   companyName: string;
-  fit: QualificationAssessment["fit"];
-  confidence: QualificationAssessment["confidence"];
-  score: number;
+  fit: CompanyQualification["fit"];
+  confidence: CompanyQualification["confidence"];
 };
 
 export async function discoverEvents(
@@ -197,11 +198,11 @@ async function enrichOneCompany(
 export async function qualifyCompanies(
   run: PipelineRun,
   icp: string,
-  qualifier: CompanyQualifier,
+  qualify: PipelineDependencies["qualifyCompany"],
 ): Promise<QualificationResult> {
   const assessed: Array<{
     profile: CompanyProfile;
-    assessment: QualificationAssessment;
+    assessment: CompanyQualification;
   }> = [];
   let failedQualifications = 0;
 
@@ -211,10 +212,10 @@ export async function qualifyCompanies(
         {
           name: "company_qualification",
           companyDomain: profile.domain,
-          provider: qualifier.provider,
+          provider: "google",
           input: { icp, company: profile.profile },
         },
-        () => qualifier.assess({ icp, company: profile.profile }),
+        () => qualify({ icp, company: profile.profile }),
       );
       assessed.push({ profile, assessment });
     } catch {
@@ -224,7 +225,7 @@ export async function qualifyCompanies(
 
   assessed.sort(
     (left, right) =>
-      right.assessment.calculatedScore - left.assessment.calculatedScore,
+      qualificationRank(right.assessment) - qualificationRank(left.assessment),
   );
   const rankedCompanies = assessed.map(({ profile, assessment }, index) => {
     const rank = index + 1;
@@ -243,7 +244,6 @@ export async function qualifyCompanies(
       companyName: profileName(profile),
       fit: assessment.fit,
       confidence: assessment.confidence,
-      score: assessment.calculatedScore,
     };
   });
 
@@ -252,6 +252,12 @@ export async function qualifyCompanies(
     failedQualifications,
     rankedCompanies,
   };
+}
+
+const ratingRank = { high: 3, medium: 2, low: 1 } as const;
+
+function qualificationRank(assessment: CompanyQualification): number {
+  return ratingRank[assessment.fit] * 10 + ratingRank[assessment.confidence];
 }
 
 function providerOutputFromCache(output: unknown): unknown {

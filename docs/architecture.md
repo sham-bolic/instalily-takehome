@@ -16,7 +16,7 @@ flowchart TD
     ENRICH[3. Enrichment coordinator builds profiles]
     GATE{Any enricher matched?}
     ASSESS[4. LLM assessor evaluates evidence]
-    SCORE[5. Application scores and ranks]
+    SCORE[5. Application ranks by fit and confidence]
     SKIP[Record as not enriched]
 
     TAVILY[Tavily and public web]
@@ -34,7 +34,7 @@ flowchart TD
     ENRICH -->|EnrichedCompanyProfile| GATE
     GATE -->|yes| ASSESS
     GATE -->|no| SKIP
-    ASSESS -->|criterion ratings and citations| SCORE
+    ASSESS -->|fit, confidence, rationale, and evidence| SCORE
     SCORE -->|ranked Leads| DB
     SKIP --> DB
     DB -->|progress, artifacts, and results| API
@@ -55,7 +55,7 @@ The orchestrator, not an AI agent, controls stage order, budgets, persistence, a
 4. The enrichment coordinator invokes configured enrichers and merges their claims into an Enriched Company Profile. Apollo is the first structured enricher, not the entire enrichment stage.
 5. A company proceeds when at least one enricher successfully matches it. If every enricher returns `no_match` or `error`, the company is recorded as not enriched and is not assessed.
 6. The assessor evaluates only the immutable profile and attached evidence. It cannot browse, retrieve more evidence, or send the company back through enrichment.
-7. Application code validates the assessor output, maps bounded criterion ratings to configured weights, and calculates the final score and rank.
+7. Application code validates the assessor output and ranks companies by categorical fit and confidence.
 8. Decision-maker discovery and outreach drafting are future consumers of ranked Leads, not steps in company qualification.
 
 ## Runtime shape
@@ -94,7 +94,7 @@ backend/
 ├── event_discovery/     # AI-grounded event discovery
 ├── company_sourcing/    # Event-to-company sourcing and deduplication
 ├── enrichment/          # Enricher coordination and profile merging
-├── qualification/       # LLM assessment and deterministic scoring
+├── qualification/       # Structured LLM fit assessment
 ├── evidence/            # Sources, claims, and provenance
 ├── persistence/         # SQLite implementation
 └── providers/           # Tavily, Apollo, and LLM adapters
@@ -110,9 +110,9 @@ backend/
 
 **Enrichment** invokes one or more enrichers and merges their results. It validates company identity, records conflicts without silently discarding claims, and leaves missing fields as `unknown`.
 
-**Qualification** submits an ICP, rubric, profile, and fixed evidence package to an assessor LLM. It validates structured responses and citations. It performs no retrieval and cannot mutate profiles or evidence.
+**Qualification** submits an ICP and enriched profile to Gemini. It validates a small structured response containing fit, confidence, rationale, and supporting evidence. It performs no retrieval and cannot mutate profiles.
 
-**Deterministic scoring** maps assessor criterion ratings to rubric weights, calculates totals, and orders eligible companies. The LLM never supplies an unconstrained total score.
+**Ranking** orders companies by categorical fit and then confidence. The MVP does not calculate a numeric score because the current evidence and rubric do not justify that precision.
 
 **Evidence** owns source records, extracted claims, and their links to selected profile fields. Evidence is persisted with run artifacts rather than hidden inside prompts or prose.
 
@@ -177,35 +177,21 @@ Ordinary partial results are represented in the artifact rather than raised as e
 
 ```text
 QualificationAssessment
-├── company_id
-├── rubric_version
-├── model_version
-├── prompt_version
-├── criteria[]
-│   ├── criterion_id
-│   ├── rating
-│   ├── rationale
-│   ├── evidence_ids[]
-│   └── missing_information[]
+├── fit
 ├── confidence
-├── calculated_score
-└── assessed_at
+├── rationale
+└── evidence[]
 ```
 
-The assessor returns bounded criterion ratings, rationale, evidence citations, missing information, and confidence. Application code validates evidence IDs and calculates `calculated_score` from the versioned rubric.
-
-The MVP uses one assessor. A future skeptical judge can review and replace the assessor's criterion decisions while consuming the same input and producing the same contract.
+The assessor returns bounded fit and confidence ratings, a concise rationale, and up to five supporting facts. Missing information lowers confidence rather than automatically lowering fit.
 
 ## LLM output validation
 
 The backend derives JSON Schema from its Pydantic contracts and requests structured assessor output.
 
-1. Validate the returned structure and referenced evidence IDs.
-2. On structural failure, provide the validation errors to the model and request a corrected response.
-3. Allow at most two correction attempts.
-4. If validation still fails, mark that company's assessment as failed and continue the run.
-
-Correction retries repair malformed output. They do not authorize the model to retrieve evidence or invent unsupported claims.
+1. Validate the returned structure with the Zod schema supplied to the Vercel AI SDK.
+2. Allow the SDK to retry failed structured generation up to two times.
+3. If generation still fails, mark that company's assessment as failed and continue the run.
 
 ## Partial failures
 
@@ -218,7 +204,7 @@ Failures are isolated at the company level whenever possible:
 - The overall run may finish as `completed_with_warnings` when usable ranked results exist.
 - A systemic failure in a required stage stops the run and retains all completed artifacts.
 
-Skipped companies do not receive a score of zero because that would imply they were assessed and rejected.
+Skipped companies do not receive a low fit rating because that would imply they were assessed and rejected.
 
 ## Persistence
 

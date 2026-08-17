@@ -9,7 +9,7 @@ The sourcing flow is split into independent probes so each stage can be tested b
 3. Company enrichment: selected company in, factual company profile out
 4. Company qualification: enriched profile and ICP in, evidence-backed assessment out
 
-All four stages are connected by a lean pipeline orchestrator. Qualification uses the Vercel AI SDK with Google's Gemini API, while the pipeline depends only on a model-agnostic `CompanyQualifier` interface.
+All four stages are connected by a lean pipeline orchestrator. Qualification uses Gemini 3.7 Flash through the Vercel AI SDK.
 
 ## Run the connected pipeline
 
@@ -27,8 +27,8 @@ The pipeline:
 3. Sources companies from the first working directory.
 4. Skips and records companies without a published website.
 5. Enriches at most five companies with Apollo, reusing earlier successful artifacts when available.
-6. Assesses each enriched company against the ICP with Gemini and validates the structured, evidence-citing response.
-7. Calculates fit scores and ranks companies in application code rather than accepting an LLM-generated score.
+6. Assesses each enriched company against the ICP with Gemini and validates the structured response.
+7. Ranks companies by categorical fit and confidence.
 8. Continues after individual enrichment or qualification failures and records them for inspection.
 
 Event discovery is a required stage. A run fails when discovery fails, no event meets the threshold, or no qualifying event has a usable directory. Individual company failures do not fail the run.
@@ -47,9 +47,9 @@ Copy the example environment file and add the keys required by the stages you wa
 cp .env.example .env
 ```
 
-The connected pipeline requires `TAVILY_API_KEY`, `APOLLO_API_KEY` for uncached companies, and `GOOGLE_GENERATIVE_AI_API_KEY`. `GEMINI_MODEL` is optional and defaults to `gemini-3.7-flash`.
+The connected pipeline requires `TAVILY_API_KEY`, `APOLLO_API_KEY` for uncached companies, and `GOOGLE_GENERATIVE_AI_API_KEY`.
 
-Google's Gemini free tier may use submitted content to improve its products. Do not send confidential, personal, or otherwise sensitive data through the free tier. The qualifier is isolated behind an interface so a later OpenRouter or zero-data-retention provider can replace it without changing pipeline or scoring code.
+Google's Gemini free tier may use submitted content to improve its products. Do not send confidential, personal, or otherwise sensitive data through the free tier.
 
 ## SQLite persistence
 
@@ -138,5 +138,5 @@ Apollo charges one credit per organization enrichment. The script makes no reque
 - Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. Resolving those companies would require a separate identity-resolution step or external API.
 - Apollo fields can be absent, especially for small or private companies. Missing values remain `null`; the prototype does not infer them or fall back to another provider.
 - Company enrichment does not yet search company websites or identify decision-makers.
-- Qualification cites generated evidence IDs that point to leaf fields in the assembled profile. The current raw Apollo response has not yet been normalized into first-class evidence claims and source records.
+- Qualification receives the assembled profile, including the raw Apollo response. That response has not yet been normalized into first-class evidence claims and source records.
 - Free Gemini API quotas can change and may throttle a multi-company run. Qualification failures remain isolated to the affected company.
