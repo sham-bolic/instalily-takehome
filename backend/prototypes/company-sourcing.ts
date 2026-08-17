@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 import * as cheerio from "cheerio";
 
 import { PipelineDatabase } from "./pipeline-database.ts";
@@ -152,7 +154,7 @@ async function addCompanyUrl<T extends { profile_url: string | null }>(
   }
 }
 
-async function findCompanies(event: string, directoryUrl: string) {
+export async function findCompanies(event: string, directoryUrl: string) {
   const html = await fetchDirectory(directoryUrl);
   const companies = extractCompanies(html, directoryUrl);
 
@@ -199,4 +201,9 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  await main();
+}

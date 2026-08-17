@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 import { PipelineDatabase } from "./pipeline-database.ts";
 import { runStageProbe } from "./stage-probe.ts";
 
@@ -9,7 +11,7 @@ type ApolloMatchInput = {
   website: string;
 };
 
-function normalizeCompanyUrl(companyUrl: string): string {
+export function normalizeCompanyUrl(companyUrl: string): string {
   const url = new URL(companyUrl);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`Company URL must use HTTP or HTTPS: ${companyUrl}`);
@@ -19,7 +21,7 @@ function normalizeCompanyUrl(companyUrl: string): string {
   return url.href;
 }
 
-function extractDomain(companyUrl: string): string {
+export function extractDomain(companyUrl: string): string {
   const hostname = new URL(companyUrl).hostname.toLowerCase();
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
 }
@@ -47,6 +49,23 @@ async function fetchApolloOrganization(
   }
 
   return body;
+}
+
+export async function enrichCompany(apiKey: string, companyUrl: string) {
+  const website = normalizeCompanyUrl(companyUrl);
+  const domain = extractDomain(website);
+  const request = { domain, website };
+  const providerResponse = await fetchApolloOrganization(apiKey, request);
+
+  return {
+    enriched_at: new Date().toISOString(),
+    provider: {
+      name: "apollo",
+      endpoint: APOLLO_ENRICHMENT_URL,
+      request,
+    },
+    provider_response: providerResponse,
+  };
 }
 
 async function main(): Promise<void> {
@@ -93,18 +112,7 @@ async function main(): Promise<void> {
       companyDomain: domain,
       input: request,
       provider: "apollo",
-      execute: async () => {
-        const providerResponse = await fetchApolloOrganization(apiKey, request);
-        return {
-          enriched_at: new Date().toISOString(),
-          provider: {
-            name: "apollo",
-            endpoint: APOLLO_ENRICHMENT_URL,
-            request,
-          },
-          provider_response: providerResponse,
-        };
-      },
+      execute: () => enrichCompany(apiKey, companyUrl),
     });
     console.log(`Saved Apollo enrichment to SQLite run ${runId}`);
   } finally {
@@ -112,4 +120,9 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  await main();
+}

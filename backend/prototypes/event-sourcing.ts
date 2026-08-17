@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 import { tavily } from "@tavily/core";
 
 import { PipelineDatabase } from "./pipeline-database.ts";
@@ -7,7 +9,7 @@ const SEARCH_DEPTH = "basic";
 const MAX_RESULTS = 3;
 
 type SearchResult = Awaited<ReturnType<typeof searchTavily>>["results"][number];
-type CompanySourceType =
+export type CompanySourceType =
   | "exhibitor_directory"
   | "sponsor_list"
   | "speaker_directory"
@@ -60,7 +62,7 @@ function toEventCandidate(result: SearchResult) {
   };
 }
 
-async function findEvents(apiKey: string, icp: string) {
+export async function findEvents(apiKey: string, icp: string) {
   const now = new Date();
   const start = new Intl.DateTimeFormat("en-US", {
     month: "long",
@@ -116,4 +118,9 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  await main();
+}
