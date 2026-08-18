@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
 
 import type {
   Run,
@@ -124,7 +125,14 @@ function PipelineLauncher({ icps, selectedICP }: { icps: SavedICP[]; selectedICP
       ) : (
         <div className="emptyLaunch"><span>Create an ICP before starting a run.</span><Link className="primaryButton" href="/?new-icp=1#new-icp">Create ICP</Link></div>
       )}
-      {selectedICP ? <details className="icpPreview"><summary>Review {selectedICP.name}</summary><pre>{selectedICP.snapshot.text}</pre></details> : null}
+      {selectedICP ? (
+        <details className="icpPreview">
+          <summary>Review {selectedICP.name}</summary>
+          <div className="markdown">
+            <ReactMarkdown>{selectedICP.snapshot.text}</ReactMarkdown>
+          </div>
+        </details>
+      ) : null}
     </section>
   );
 }
