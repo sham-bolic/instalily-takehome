@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "event-sourcing": "node --env-file=.env backend/prototypes/event-sourcing.ts",
-    "company-sourcing": "node backend/prototypes/company-sourcing.ts",
+    "company-sourcing": "node --env-file=.env backend/prototypes/company-sourcing.ts",
     "company-enrichment": "node --env-file=.env backend/prototypes/company-enrichment.ts",
     "pipeline": "node --env-file=.env backend/prototypes/pipeline.ts",
     "dashboard": "next dev -p ${PORT:-4173}",
@@ -19,8 +19,8 @@
     "@ai-sdk/google": "4.0.44",
     "@tavily/core": "0.7.7",
     "ai": "7.0.66",
-    "cheerio": "1.1.2",
     "next": "^16.3.1",
+    "playwright": "^1.62.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
