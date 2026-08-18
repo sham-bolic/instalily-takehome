@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 
 import { enrichCompany } from "./company-enrichment.ts";
 import { qualifyCompany } from "./company-qualification.ts";
+import { researchCompany } from "./company-research.ts";
 import { findCompanies } from "./company-sourcing.ts";
 import { findEvents } from "./event-sourcing.ts";
 import {
@@ -217,7 +218,8 @@ function startLiveRun(database: PipelineDatabase, icp: SavedICP): number {
       findEvents: (value) =>
         findEvents(tavilyApiKey, value, icp.snapshot.criteria),
       findCompanies,
-      enrichCompany: (companyUrl) => enrichCompany(apolloApiKey, companyUrl),
+      researchCompany: (company) => researchCompany(tavilyApiKey, company),
+      enrichCompany: (company) => enrichCompany(apolloApiKey, company),
       qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),
     },
   );
