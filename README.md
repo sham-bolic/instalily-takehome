@@ -2,7 +2,7 @@
 
 An AI-assisted sales research workspace that turns an ideal customer profile (ICP) into a focused list of companies and people to contact.
 
-The prototype was built for DuPont Tedlar's Graphics & Signage team. It:
+The product was built for DuPont Tedlar's Graphics & Signage team. It:
 
 1. Finds relevant industry events and trade shows.
 2. Sources participating companies from event directories.
@@ -75,6 +75,6 @@ npm start         # Serve the production build on port 4173
 npm run db:inspect # Inspect saved pipeline runs
 ```
 
-Pipeline results are stored locally in SQLite at `backend/prototypes/results/pipeline.sqlite`.
+Pipeline results are stored locally in SQLite at `backend/results/pipeline.sqlite`.
 
-For implementation details and individual pipeline commands, see [backend/prototypes/README.md](backend/prototypes/README.md).
+For implementation details and individual pipeline commands, see [backend/README.md](backend/README.md). Product terminology is defined in [docs/domain-language.md](docs/domain-language.md).

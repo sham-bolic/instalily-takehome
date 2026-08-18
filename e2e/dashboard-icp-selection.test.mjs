@@ -8,8 +8,8 @@ import { test } from "node:test";
 
 import { chromium } from "playwright";
 
-import { buildICPSnapshot } from "../backend/prototypes/icp-builder.ts";
-import { PipelineDatabase } from "../backend/prototypes/pipeline-database.ts";
+import { buildICPSnapshot } from "../backend/icp-builder.ts";
+import { PipelineDatabase } from "../backend/pipeline-database.ts";
 
 test("switching ICPs and opening the ICP builder modal", { timeout: 45_000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "instalily-icp-e2e-"));

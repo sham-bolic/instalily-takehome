@@ -1,20 +1,20 @@
-import { enrichCompany } from "../../backend/prototypes/company-enrichment.ts";
-import { qualifyCompany } from "../../backend/prototypes/company-qualification.ts";
-import { startDecisionMakerPipeline } from "../../backend/prototypes/decision-maker-pipeline.ts";
-import { evaluateOutreachCandidates } from "../../backend/prototypes/outreach-candidate-evaluation.ts";
-import { draftPersonalizedOutreach } from "../../backend/prototypes/outreach-drafting.ts";
-import { startOutreachPipeline } from "../../backend/prototypes/outreach-pipeline.ts";
-import { researchOutreachSignals } from "../../backend/prototypes/outreach-research.ts";
-import { researchCompany } from "../../backend/prototypes/company-research.ts";
-import { searchDecisionMakers } from "../../backend/prototypes/decision-maker-search.ts";
-import { findCompanies } from "../../backend/prototypes/company-sourcing.ts";
-import { findEvents } from "../../backend/prototypes/event-sourcing.ts";
-import type { SavedICP } from "../../backend/prototypes/pipeline-database.ts";
+import { enrichCompany } from "../../backend/company-enrichment.ts";
+import { qualifyCompany } from "../../backend/company-qualification.ts";
+import { startDecisionMakerPipeline } from "../../backend/decision-maker-pipeline.ts";
+import { evaluateOutreachCandidates } from "../../backend/outreach-candidate-evaluation.ts";
+import { draftPersonalizedOutreach } from "../../backend/outreach-drafting.ts";
+import { startOutreachPipeline } from "../../backend/outreach-pipeline.ts";
+import { researchOutreachSignals } from "../../backend/outreach-research.ts";
+import { researchCompany } from "../../backend/company-research.ts";
+import { searchDecisionMakers } from "../../backend/decision-maker-search.ts";
+import { findCompanies } from "../../backend/company-sourcing.ts";
+import { findEvents } from "../../backend/event-sourcing.ts";
+import type { SavedICP } from "../../backend/pipeline-database.ts";
 import {
   startPipeline,
   startPipelineForEvent,
   startResumedPipeline,
-} from "../../backend/prototypes/pipeline.ts";
+} from "../../backend/pipeline.ts";
 import { getDatabase } from "./database.ts";
 
 export function startLivePipeline(icp: SavedICP): number {

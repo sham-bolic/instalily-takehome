@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { findCompanies } from "./company-sourcing.ts";
+import { findCompanies } from "../backend/company-sourcing.ts";
 import {
   type CompanyQualification,
   type QualificationInput,
-} from "./company-qualification.ts";
-import { findEvents } from "./event-sourcing.ts";
-import { PipelineDatabase } from "./pipeline-database.ts";
+} from "../backend/company-qualification.ts";
+import { findEvents } from "../backend/event-sourcing.ts";
+import { PipelineDatabase } from "../backend/pipeline-database.ts";
 import {
   runPipeline,
   startPipelineForEvent,
   startResumedPipeline,
-} from "./pipeline.ts";
+} from "../backend/pipeline.ts";
 
 type Discovery = Awaited<ReturnType<typeof findEvents>>;
 type Sourcing = Awaited<ReturnType<typeof findCompanies>>;

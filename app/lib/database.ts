@@ -1,4 +1,4 @@
-import { PipelineDatabase } from "../../backend/prototypes/pipeline-database.ts";
+import { PipelineDatabase } from "../../backend/pipeline-database.ts";
 
 declare global {
   var pipelineDatabase: PipelineDatabase | undefined;

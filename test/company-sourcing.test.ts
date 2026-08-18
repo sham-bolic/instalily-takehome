@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   findOfficialCompanyUrl,
   type RenderedPage,
-} from "./company-sourcing.ts";
+} from "../backend/company-sourcing.ts";
 
 function profile(links: RenderedPage["links"]): RenderedPage {
   return {

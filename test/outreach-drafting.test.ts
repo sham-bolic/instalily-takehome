@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { draftPersonalizedOutreach } from "./outreach-drafting.ts";
+import { draftPersonalizedOutreach } from "../backend/outreach-drafting.ts";
 
 test("rejects a candidate assessment for a different person before calling Gemini", async () => {
   await assert.rejects(

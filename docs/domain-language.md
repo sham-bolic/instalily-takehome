@@ -1,6 +1,6 @@
 # Lead Qualification
 
-This context describes how the prototype discovers and qualifies potential customers for DuPont Tedlar's Graphics & Signage team.
+This document defines the product language used to describe how potential customers are discovered and qualified.
 
 ## Language
 

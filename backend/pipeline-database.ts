@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { type ICPSnapshot } from "./icp-builder.ts";
 
 export const DEFAULT_DATABASE_PATH =
-  "backend/prototypes/results/pipeline.sqlite";
+  "backend/results/pipeline.sqlite";
 
 export type RunMode = "pipeline" | "probe" | "demo";
 export type RunStatus = "running" | "completed" | "failed";

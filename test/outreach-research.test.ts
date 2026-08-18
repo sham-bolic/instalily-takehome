@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { researchOutreachSignals } from "./outreach-research.ts";
+import { researchOutreachSignals } from "../backend/outreach-research.ts";
 
 test("keeps only first-party outreach evidence", async () => {
   const result = await researchOutreachSignals(

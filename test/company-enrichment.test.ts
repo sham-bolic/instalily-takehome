@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { enrichCompany } from "./company-enrichment.ts";
+import { enrichCompany } from "../backend/company-enrichment.ts";
 
 test("enriches by website and includes the company name", async () => {
   let requestUrl = "";

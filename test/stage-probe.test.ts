@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { PipelineDatabase } from "./pipeline-database.ts";
-import { runStageProbe } from "./stage-probe.ts";
+import { PipelineDatabase } from "../backend/pipeline-database.ts";
+import { runStageProbe } from "../backend/stage-probe.ts";
 
 test("persists a successful standalone stage execution", async () => {
   const database = new PipelineDatabase(":memory:");

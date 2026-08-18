@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildICPSnapshot } from "./icp-builder.ts";
+import { buildICPSnapshot } from "../backend/icp-builder.ts";
 
 test("builds an ICP from required and supplied optional fields", () => {
   const snapshot = buildICPSnapshot({

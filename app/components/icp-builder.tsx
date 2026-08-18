@@ -9,7 +9,7 @@ import {
   DUPONT_TEDLAR_ICP,
   renderICPMarkdown,
   type ICPFormInput,
-} from "../../backend/prototypes/icp-builder.ts";
+} from "../../backend/icp-builder.ts";
 
 type Field = {
   name: keyof ICPFormInput;

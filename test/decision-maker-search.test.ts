@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { searchDecisionMakers } from "./decision-maker-search.ts";
+import { searchDecisionMakers } from "../backend/decision-maker-search.ts";
 
 test("searches Surfe by company domain for the required roles", async () => {
   let requestUrl = "";

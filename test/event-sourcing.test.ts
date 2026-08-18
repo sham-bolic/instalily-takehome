@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   buildEventSearchQueries,
   findEvents,
-} from "./event-sourcing.ts";
+} from "../backend/event-sourcing.ts";
 
 const EVENT_QUERY_MAX_CHARACTERS = 260;
 

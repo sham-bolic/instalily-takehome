@@ -109,7 +109,7 @@ npm run event-sourcing -- \
   "Companies making durable large-format signage, vehicle wraps, architectural graphics, and protective graphic films"
 ```
 
-The npm script loads `.env` into `process.env`, and the prototype reads `process.env.TAVILY_API_KEY`. It saves the response as a SQLite stage artifact, including:
+The npm script loads `.env` into `process.env`, and the pipeline reads `process.env.TAVILY_API_KEY`. It saves the response as a SQLite stage artifact, including:
 
 - When the search ran
 - The external ICP
@@ -121,7 +121,7 @@ The npm script loads `.env` into `process.env`, and the prototype reads `process
 
 Each execution remains available under its own probe run.
 
-The prototype makes up to three concise `advanced` searches for target companies, applications, and event signals, with ten results per search. It deduplicates results and, for up to five likely event pages without a directory, runs a focused search for that event's exhibitor list or floor plan. `company_source` is `null` when no recognizable participant list is found. No event is automatically selected. First inspect the saved results and explicitly pass an event with an exhibitor directory to company sourcing.
+The pipeline makes up to three concise `advanced` searches for target companies, applications, and event signals, with ten results per search. It deduplicates results and, for up to five likely event pages without a directory, runs a focused search for that event's exhibitor list or floor plan. `company_source` is `null` when no recognizable participant list is found. No event is automatically selected. First inspect the saved results and explicitly pass an event with an exhibitor directory to company sourcing.
 
 ## Test company sourcing
 
@@ -161,7 +161,7 @@ Apollo charges one credit per organization enrichment. The script makes no reque
 
 ## Known limitations
 
-- Event search can return third-party participant-list vendors instead of the event's own website. The current prototype preserves the URL but does not yet verify that the event owns its domain.
+- Event search can return third-party participant-list vendors instead of the event's own website. The current implementation preserves the URL but does not yet verify that the event owns its domain.
 - Company extraction currently recognizes linked exhibitor profiles and HTML tables with company and booth columns. Other directory layouts will need additional extraction strategies.
 - Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. The pipeline uses one Tavily search to resolve them, but ambiguous companies remain unresolved rather than being guessed.
 - Apollo fields can be absent, especially for small or private companies. Missing values remain `null`, and the public-web research remains available when Apollo has no match.

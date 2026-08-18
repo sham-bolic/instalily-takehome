@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildICPSnapshot } from "./icp-builder.ts";
-import { PipelineDatabase } from "./pipeline-database.ts";
+import { buildICPSnapshot } from "../backend/icp-builder.ts";
+import { PipelineDatabase } from "../backend/pipeline-database.ts";
 
 test("stores multiple named ICPs", () => {
   const database = new PipelineDatabase(":memory:");

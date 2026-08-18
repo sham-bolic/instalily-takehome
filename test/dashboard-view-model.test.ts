@@ -6,11 +6,11 @@ import {
   toLeadView,
   toPipelineInventory,
   type LeadView,
-} from "../../app/lib/dashboard-data.ts";
+} from "../app/lib/dashboard-data.ts";
 import type {
   CompanyProfile,
   StageArtifact,
-} from "./pipeline-database.ts";
+} from "../backend/pipeline-database.ts";
 
 test("maps a persisted profile into a sales-facing lead", () => {
   const profile: CompanyProfile = {

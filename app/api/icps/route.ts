@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import {
   buildICPSnapshot,
   type ICPFormInput,
-} from "../../../backend/prototypes/icp-builder.ts";
+} from "../../../backend/icp-builder.ts";
 import { getDatabase } from "../../lib/database.ts";
 
 export const runtime = "nodejs";

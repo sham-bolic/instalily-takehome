@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { companyQualificationSchema } from "./company-qualification.ts";
+import { companyQualificationSchema } from "../backend/company-qualification.ts";
 
 test("accepts the lean qualification result", () => {
   const result = companyQualificationSchema.parse({

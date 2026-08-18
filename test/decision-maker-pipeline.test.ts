@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { startDecisionMakerPipeline } from "./decision-maker-pipeline.ts";
-import { PipelineDatabase } from "./pipeline-database.ts";
+import { startDecisionMakerPipeline } from "../backend/decision-maker-pipeline.ts";
+import { PipelineDatabase } from "../backend/pipeline-database.ts";
 
 test("creates a linked run and searches only high-fit profiles", async () => {
   const database = new PipelineDatabase(":memory:");

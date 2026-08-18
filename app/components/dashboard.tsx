@@ -6,7 +6,7 @@ import type {
   Run,
   SavedICP,
   StageArtifact,
-} from "../../backend/prototypes/pipeline-database.ts";
+} from "../../backend/pipeline-database.ts";
 import { getDatabase } from "../lib/database.ts";
 import {
   selectedICPIdFromRun,

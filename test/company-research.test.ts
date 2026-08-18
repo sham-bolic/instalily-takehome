@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { researchCompany } from "./company-research.ts";
+import { researchCompany } from "../backend/company-research.ts";
 
 test("researches a company with one neutral Tavily search and resolves its official website", async () => {
   const queries: string[] = [];

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { startOutreachPipeline } from "./outreach-pipeline.ts";
-import { PipelineDatabase } from "./pipeline-database.ts";
+import { startOutreachPipeline } from "../backend/outreach-pipeline.ts";
+import { PipelineDatabase } from "../backend/pipeline-database.ts";
 
 test("creates a linked outreach run and drafts only matched people", async () => {
   const database = new PipelineDatabase(":memory:");

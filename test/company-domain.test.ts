@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { companyDomainsMatch } from "./company-domain.ts";
+import { companyDomainsMatch } from "../backend/company-domain.ts";
 
 test("matches a company subdomain to its parent domain", () => {
   assert.equal(companyDomainsMatch("careers.agfa.com", "agfa.com"), true);

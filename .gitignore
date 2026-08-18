@@ -23,6 +23,7 @@ GEMINI.md
 *.ai-transcript.*
 ai-notes/
 prompts.local/
+research/
 
 # Secrets and local environment
 .env
@@ -46,6 +47,7 @@ __pycache__/
 dist/
 build/
 .next/
+next-env.d.ts
 *.tsbuildinfo
 coverage/
 *.sqlite

@@ -2,7 +2,7 @@ import type {
   CompanyProfile,
   Run,
   StageArtifact,
-} from "../../backend/prototypes/pipeline-database.ts";
+} from "../../backend/pipeline-database.ts";
 
 export type OutreachEvidenceView = {
   id: string;

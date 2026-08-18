@@ -4,8 +4,8 @@ import { test } from "node:test";
 import {
   validateCandidateAssessments,
   type CandidateAssessment,
-} from "./outreach-candidate-evaluation.ts";
-import type { DecisionMaker } from "./decision-maker-search.ts";
+} from "../backend/outreach-candidate-evaluation.ts";
+import type { DecisionMaker } from "../backend/decision-maker-search.ts";
 
 const people = [
   person("Dana", "Director", "Director of Product Development"),
