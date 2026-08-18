@@ -57,7 +57,7 @@ test("creates a named ICP and makes it available in the run dropdown", async () 
     const html = await (await fetch(new URL(location ?? "/", url))).text();
     assert.match(html, /<option value="1" selected>Graphics and signage<\/option>/);
     assert.match(html, /Run pipeline/);
-    assert.match(html, /Offering: Protective films/);
+    assert.match(html, /## Offering\nProtective films/);
   } finally {
     await closeServer(server);
     database.close();

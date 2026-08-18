@@ -49,27 +49,7 @@ export function buildICPSnapshot(input: ICPFormInput): ICPSnapshot {
     throw new Error(`Complete the required fields: ${missing.join(", ")}.`);
   }
 
-  const lines = [
-    `Offering: ${criteria.offering}`,
-    `Ideal customers: ${criteria.targetCompanies}`,
-    `Target applications: ${criteria.applications}`,
-  ];
-
-  addLine(lines, "Strong-fit signals", criteria.strongFitSignals);
-  addLine(lines, "Company size", criteria.companySize);
-  addLine(lines, "Geography", criteria.geography);
-  addLine(lines, "Exclusions", criteria.exclusions);
-
-  if (criteria.idealCompany) {
-    const reason = criteria.idealCompanyReason
-      ? ` because ${criteria.idealCompanyReason}`
-      : "";
-    lines.push(
-      `Representative ideal company: ${criteria.idealCompany}${reason}`,
-    );
-  }
-
-  return { version: 1, criteria, text: lines.join("\n") };
+  return { version: 1, criteria, text: renderICPMarkdown(criteria) };
 }
 
 function cleanInput(input: ICPFormInput): ICPFormInput {
@@ -78,10 +58,44 @@ function cleanInput(input: ICPFormInput): ICPFormInput {
   ) as ICPFormInput;
 }
 
-function addLine(
-  lines: string[],
-  label: string,
+export function renderICPMarkdown(criteria: ICPFormInput): string {
+  const core = `# Ideal Customer Profile
+
+## Offering
+${criteria.offering}
+
+## Ideal customers
+${criteria.targetCompanies}
+
+## Target applications
+${criteria.applications}`;
+
+  const qualificationCriteria = [
+    markdownSection("Strong-fit signals", criteria.strongFitSignals, 3),
+    markdownSection("Company size", criteria.companySize, 3),
+    markdownSection("Geography", criteria.geography, 3),
+    markdownSection("Exclusions", criteria.exclusions, 3),
+  ].filter(Boolean);
+
+  const blocks = [core];
+  if (qualificationCriteria.length > 0) {
+    blocks.push(`## Qualification criteria\n\n${qualificationCriteria.join("\n\n")}`);
+  }
+
+  if (criteria.idealCompany) {
+    const reason = criteria.idealCompanyReason
+      ? `\n\n${criteria.idealCompanyReason}`
+      : "";
+    blocks.push(`## Representative ideal company\n\n**${criteria.idealCompany}**${reason}`);
+  }
+
+  return blocks.join("\n\n");
+}
+
+function markdownSection(
+  heading: string,
   value: string | undefined,
-): void {
-  if (value) lines.push(`${label}: ${value}`);
+  level: 2 | 3,
+): string {
+  return value ? `${"#".repeat(level)} ${heading}\n${value}` : "";
 }
