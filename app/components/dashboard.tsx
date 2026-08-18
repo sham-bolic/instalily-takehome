@@ -13,6 +13,7 @@ import {
   type LeadView,
 } from "../lib/dashboard-data.ts";
 import { ICPBuilder } from "./icp-builder.tsx";
+import { ICPSelector } from "./icp-selector.tsx";
 import { RefreshWhileRunning } from "./refresh-while-running.tsx";
 
 const pipelineStages = [
@@ -115,9 +116,10 @@ function PipelineLauncher({ icps, selectedICP }: { icps: SavedICP[]; selectedICP
       {icps.length ? (
         <form className="launchForm" action="/api/runs" method="post">
           <label className="selectField"><span>Ideal customer profile</span>
-            <select name="icpId" defaultValue={selectedICP?.id}>
-              {icps.map((icp) => <option value={icp.id} key={icp.id}>{icp.name}</option>)}
-            </select>
+            <ICPSelector
+              options={icps.map(({ id, name }) => ({ id, name }))}
+              selectedICPId={selectedICP?.id}
+            />
           </label>
           <button className="primaryButton" type="submit">Run pipeline <span>→</span></button>
           <Link className="secondaryButton" href="/?new-icp=1#new-icp">Add ICP</Link>
@@ -126,7 +128,7 @@ function PipelineLauncher({ icps, selectedICP }: { icps: SavedICP[]; selectedICP
         <div className="emptyLaunch"><span>Create an ICP before starting a run.</span><Link className="primaryButton" href="/?new-icp=1#new-icp">Create ICP</Link></div>
       )}
       {selectedICP ? (
-        <details className="icpPreview">
+        <details className="icpPreview" key={selectedICP.id}>
           <summary>Review {selectedICP.name}</summary>
           <div className="markdown">
             <ReactMarkdown>{selectedICP.snapshot.text}</ReactMarkdown>
