@@ -10,6 +10,7 @@ The sourcing flow is split into independent probes so each stage can be tested b
 4. Company enrichment: the resolved domain is optionally matched to Apollo and merged with public-web research
 5. Company qualification: enriched profile and ICP in, evidence-backed assessment out
 6. Decision-maker search: high-fit leads are searched in Surfe for relevant VPs, Directors, and Heads
+7. Outbound generation: Gemini qualifies each person for outreach, Tavily researches company signals, and Gemini drafts evidence-grounded messages
 
 All stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini 3.7 Flash through the Vercel AI SDK.
 
@@ -34,7 +35,8 @@ The pipeline:
 8. Ranks companies by categorical fit and confidence.
 9. Searches Surfe only for companies rated high fit, using the verified company domain and the Product Development, Innovation, R&D, Coatings, and Protective Solutions role families.
 10. Saves full names, titles, seniority, department, country, and LinkedIn URLs to each qualified company profile.
-11. Continues after individual research, enrichment, qualification, or decision-maker search failures and records them for inspection.
+11. Scores every matched person for outreach relevance, researches company signals for selected people, and drafts personalized messages.
+12. Continues after individual research, enrichment, qualification, decision-maker search, or outbound generation failures and records them for inspection.
 
 Event discovery is a required stage. A run fails when discovery fails, no event meets the threshold, or no qualifying event has a usable directory. Individual company failures do not fail the run.
 
@@ -69,7 +71,7 @@ Open the Next.js lead intelligence dashboard with:
 npm run dashboard
 ```
 
-Then visit [http://localhost:4173](http://localhost:4173). The dashboard stores multiple named ICPs in SQLite. Choose one from the pipeline target dropdown or use **Add ICP** to open the prefilled DuPont Tedlar form. Creating an ICP formats the supplied answers without web research or an LLM. Clicking **Run pipeline** starts the complete live pipeline with an immutable copy of the selected ICP. A failed run with completed event discovery can be resumed from its run overview. Resuming creates a linked run, reuses the persisted discovery artifact, applies the current event threshold, and retries company sourcing and later stages without spending another Tavily request. The dashboard polls while a run is active and presents ranked company, event, qualification rationale, evidence, size, and revenue data as it becomes available. Raw stage artifacts remain available in the collapsed developer trace. Set `PORT` to use another port.
+Then visit [http://localhost:4173](http://localhost:4173). The dashboard stores multiple named ICPs in SQLite. Choose one from the pipeline target dropdown or use **Add ICP** to open the prefilled DuPont Tedlar form. Creating an ICP formats the supplied answers without web research or an LLM. Clicking **Run pipeline** starts the complete live pipeline, including decision-maker qualification and personalized outbound generation, with an immutable copy of the selected ICP. A failed run with completed event discovery can be resumed from its run overview. Resuming creates a linked run, reuses the persisted discovery artifact, applies the current event threshold, and retries company sourcing and later stages without spending another Tavily request. The dashboard polls while a run is active and presents ranked company, event, qualification rationale, evidence, size, and revenue data as it becomes available. Raw stage artifacts remain available in the collapsed developer trace. Set `PORT` to use another port.
 
 Create and serve an optimized production build with `npm run build` followed by `npm start`. The dashboard uses the Next.js Node runtime because its SQLite driver is not compatible with the Edge runtime.
 
@@ -92,7 +94,7 @@ The command imports only the source run's high-fit company profiles into a new l
 
 ## Generate personalized outreach for an existing decision-maker run
 
-A completed decision-maker run can be reused without rerunning Surfe or earlier qualification stages:
+The complete pipeline generates outreach automatically. This standalone command remains available for older or manually created decision-maker runs that need outreach without rerunning Surfe or earlier qualification stages:
 
 ```bash
 npm run outreach -- 17

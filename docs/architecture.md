@@ -64,7 +64,7 @@ The orchestrator, not an AI agent, controls stage order, budgets, persistence, a
 6. The assessor evaluates only the immutable profile and attached evidence. It cannot browse, retrieve more evidence, or send the company back through enrichment.
 7. Application code validates the assessor output and ranks companies by categorical fit and confidence.
 8. Only leads rated `high` fit proceed to Surfe decision-maker search. The search uses the verified company domain and role families from the case-study instructions. Search failures are isolated to that lead.
-9. A linked outreach run reuses matched decision-makers and asks Gemini to score every candidate against the ICP and company context. Application code validates candidate identity and applies a relevance threshold of 70. Candidates that pass are researched with Tavily and receive editable, evidence-grounded Gemini drafts. The dashboard supports review and copy, but not automatic sending.
+9. The default pipeline continues from matched decision-makers into outbound generation. Gemini scores every candidate against the ICP and company context. Application code validates candidate identity and applies a relevance threshold of 70. Candidates that pass are researched with Tavily and receive editable, evidence-grounded Gemini drafts. The dashboard supports review and copy, but not automatic sending. A linked outreach run remains available for processing an existing decision-maker run.
 
 ## Runtime shape
 
@@ -125,7 +125,7 @@ backend/
 
 **Decision-maker discovery** searches Surfe only for high-fit leads. It scopes each request to the verified company domain and the VP, Director, and Head roles relevant to Product Development, Innovation, R&D, Coatings, and Protective Solutions. Results remain attached to the qualified lead.
 
-**Outreach enrichment** runs as an immutable follow-up to decision-maker discovery. Gemini evaluates all Surfe candidates together for each company and returns a relevance score, confidence, and rationale. Application code verifies that every supplied candidate was evaluated exactly once, rejects unknown identities, and selects everyone meeting the run's relevance threshold. Tavily then retrieves first-party evidence once per company, and Gemini chooses from approved Tedlar claims while drafting each selected person's message. Missing research falls back to role and qualification context with a warning. Evaluation, research, and drafting failures remain isolated by company or person.
+**Outreach enrichment** runs immediately after decision-maker discovery in the default pipeline and can also run as an immutable follow-up to an existing decision-maker run. Gemini evaluates all Surfe candidates together for each company and returns a relevance score, confidence, and rationale. Application code verifies that every supplied candidate was evaluated exactly once, rejects unknown identities, and selects everyone meeting the run's relevance threshold. Tavily then retrieves first-party evidence once per company, and Gemini chooses from approved Tedlar claims while drafting each selected person's message. Missing research falls back to role and qualification context with a warning. Evaluation, research, and drafting failures remain isolated by company or person.
 
 **Evidence** owns source records, extracted claims, and their links to selected profile fields. Evidence is persisted with run artifacts rather than hidden inside prompts or prose.
 

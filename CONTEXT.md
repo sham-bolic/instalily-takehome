@@ -45,5 +45,5 @@ A Candidate Company whose Enriched Company Profile has been evaluated as a plaus
 _Avoid_: Contact, decision-maker, stakeholder
 
 **Decision-maker**:
-A person at a lead who may be suitable for outbound sales contact. Decision-maker sourcing and outreach are optional extensions beyond the core MVP.
+A person at a lead who may be suitable for outbound sales contact. The default pipeline sources decision-makers, evaluates their outreach relevance, and drafts messages for selected people.
 _Avoid_: Lead
