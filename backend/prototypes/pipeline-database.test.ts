@@ -148,6 +148,49 @@ test("preserves flexible provider output while updating the assembled profile", 
   }
 });
 
+test("deletes a finished run and all of its stored results", () => {
+  const database = new PipelineDatabase(":memory:");
+
+  try {
+    const runId = database.createRun({ mode: "pipeline" });
+    database.recordStageArtifact({
+      runId,
+      stage: "company_enrichment",
+      status: "completed",
+      input: { domain: "example.com" },
+      output: { organization: { name: "Example" } },
+    });
+    database.upsertCompanyProfile({
+      runId,
+      domain: "example.com",
+      companyUrl: "https://example.com/",
+      profile: { name: "Example" },
+    });
+    database.completeRun(runId);
+
+    assert.equal(database.deleteRun(runId), true);
+    assert.equal(database.getRun(runId), null);
+    assert.deepEqual(database.listStageArtifacts(runId), []);
+    assert.deepEqual(database.listCompanyProfiles(runId), []);
+    assert.equal(database.deleteRun(runId), false);
+  } finally {
+    database.close();
+  }
+});
+
+test("does not delete a run while it is still running", () => {
+  const database = new PipelineDatabase(":memory:");
+
+  try {
+    const runId = database.createRun({ mode: "pipeline" });
+
+    assert.equal(database.deleteRun(runId), false);
+    assert.ok(database.getRun(runId));
+  } finally {
+    database.close();
+  }
+});
+
 test("finds the latest completed artifact for a company", () => {
   const database = new PipelineDatabase(":memory:");
 

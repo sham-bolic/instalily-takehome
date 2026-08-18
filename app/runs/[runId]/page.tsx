@@ -24,6 +24,7 @@ export default async function RunPage({ params, searchParams }: PageProps) {
     <Dashboard
       selectedRunId={runId}
       requestedICPId={Number.isInteger(icpId) && icpId > 0 ? icpId : undefined}
+      selectedTab={Array.isArray(query.tab) ? query.tab[0] : query.tab}
       error={Array.isArray(query.error) ? query.error[0] : query.error}
     />
   );

@@ -10,8 +10,12 @@ import { getDatabase } from "../lib/database.ts";
 import {
   selectedICPIdFromRun,
   toLeadView,
+  toPipelineInventory,
+  type EventView,
   type LeadView,
+  type SourcedCompanyView,
 } from "../lib/dashboard-data.ts";
+import { DeleteRunButton } from "./delete-run-button.tsx";
 import { ICPBuilder } from "./icp-builder.tsx";
 import { ICPSelector } from "./icp-selector.tsx";
 import { RefreshWhileRunning } from "./refresh-while-running.tsx";
@@ -27,43 +31,59 @@ type DashboardProps = {
   selectedRunId?: number;
   requestedICPId?: number;
   showICPBuilder?: boolean;
+  selectedTab?: string;
   error?: string;
 };
+
+type DashboardTab = "events" | "companies" | "enriched" | "qualified";
 
 export function Dashboard({
   selectedRunId,
   requestedICPId,
   showICPBuilder = false,
+  selectedTab,
   error,
 }: DashboardProps) {
   const database = getDatabase();
   const runs = database.listRuns().toReversed();
-  const selectedRun = selectedRunId === undefined
-    ? runs[0] ?? null
-    : database.getRun(selectedRunId);
+  const selectedRun =
+    selectedRunId === undefined
+      ? (runs[0] ?? null)
+      : database.getRun(selectedRunId);
   const artifacts = selectedRun
     ? database.listStageArtifacts(selectedRun.id)
     : [];
-  const leads = selectedRun
-    ? database.listCompanyProfiles(selectedRun.id).map(toLeadView).sort(compareLeads)
+  const profiles = selectedRun
+    ? database.listCompanyProfiles(selectedRun.id)
     : [];
+  const leads = profiles.map(toLeadView).sort(compareLeads);
+  const inventory = toPipelineInventory(artifacts, profiles);
+  const qualifiedLeads = leads.filter((lead) => lead.fit !== null);
+  const activeTab = dashboardTab(selectedTab);
   const icps = database.listICPs();
-  const selectedICPId = requestedICPId ?? selectedICPIdFromRun(selectedRun) ?? icps.at(-1)?.id ?? null;
-  const selectedICP = selectedICPId === null ? null : database.getICP(selectedICPId);
-  const completed = runs.filter((run) => run.status === "completed").length;
+  const selectedICPId =
+    requestedICPId ??
+    selectedICPIdFromRun(selectedRun) ??
+    icps.at(-1)?.id ??
+    null;
+  const selectedICP =
+    selectedICPId === null ? null : database.getICP(selectedICPId);
   const active = selectedRun?.status === "running";
 
   return (
     <>
       <RefreshWhileRunning active={active} />
       <header className="topbar">
-        <div className="brand">
-          <span className="brandMark">T</span>
-          <div><strong>Tedlar lead intelligence</strong><span>Graphics & Signage</span></div>
-        </div>
         <div className="topActions">
-          <span className="liveDot"><i /> Pipeline connected</span>
-          <Link className="secondaryButton" href={selectedRun ? `/runs/${selectedRun.id}` : "/"}>Refresh</Link>
+          <span className="liveDot">
+            <i /> Pipeline connected
+          </span>
+          <Link
+            className="secondaryButton"
+            href={selectedRun ? `/runs/${selectedRun.id}` : "/"}
+          >
+            Refresh
+          </Link>
         </div>
       </header>
 
@@ -72,20 +92,50 @@ export function Dashboard({
           <div>
             <p className="eyebrow">Lead qualification workspace</p>
             <h1>Find the companies already showing up.</h1>
-            <p>Discover credible industry events, identify participating companies, and turn public evidence into a focused sales queue.</p>
+            <p>
+              Discover credible industry events, identify participating
+              companies, and turn public evidence into a focused sales queue.
+            </p>
           </div>
-          <div className="heroMetric"><strong>{leads.filter((lead) => lead.fit === "high").length}</strong><span>high-fit leads in view</span></div>
+          <div className="heroMetric">
+            <strong>
+              {leads.filter((lead) => lead.fit === "high").length}
+            </strong>
+            <span>high-fit leads in view</span>
+          </div>
         </section>
 
-        {error ? <div className="error pageError"><strong>Could not complete that action</strong><span>{error}</span></div> : null}
+        {error && !showICPBuilder ? (
+          <div className="error pageError">
+            <strong>Could not complete that action</strong>
+            <span>{error}</span>
+          </div>
+        ) : null}
         <PipelineLauncher icps={icps} selectedICP={selectedICP} />
         {showICPBuilder ? <ICPBuilder error={error} /> : null}
 
-        <section className="metricGrid" aria-label="Pipeline summary">
-          <Metric label="Total runs" value={runs.length} detail="saved in SQLite" />
-          <Metric label="Completed" value={completed} detail="available for review" />
-          <Metric label="Companies" value={leads.length} detail="in selected run" />
-          <Metric label="High fit" value={leads.filter((lead) => lead.fit === "high").length} detail="ready to prioritize" accent />
+        <section className="metricGrid" aria-label="Selected run data">
+          <Metric
+            label="Events"
+            value={inventory.events.length}
+            detail="discovered"
+          />
+          <Metric
+            label="Companies"
+            value={inventory.companies.length}
+            detail="sourced from events"
+          />
+          <Metric
+            label="Enriched"
+            value={leads.length}
+            detail="profiles available"
+          />
+          <Metric
+            label="Qualified"
+            value={qualifiedLeads.length}
+            detail="assessed for fit"
+            accent
+          />
         </section>
 
         <div className="workspace">
@@ -94,10 +144,20 @@ export function Dashboard({
             {selectedRun ? (
               <>
                 <RunOverview run={selectedRun} artifacts={artifacts} />
-                <LeadResults leads={leads} running={active} />
+                <ResultTabs
+                  runId={selectedRun.id}
+                  activeTab={activeTab}
+                  events={inventory.events}
+                  companies={inventory.companies}
+                  enrichedLeads={leads}
+                  qualifiedLeads={qualifiedLeads}
+                  running={active}
+                />
                 <ArtifactDetails artifacts={artifacts} />
               </>
-            ) : <EmptyState />}
+            ) : (
+              <EmptyState />
+            )}
           </div>
         </div>
       </main>
@@ -105,27 +165,46 @@ export function Dashboard({
   );
 }
 
-function PipelineLauncher({ icps, selectedICP }: { icps: SavedICP[]; selectedICP: SavedICP | null }) {
+function PipelineLauncher({
+  icps,
+  selectedICP,
+}: {
+  icps: SavedICP[];
+  selectedICP: SavedICP | null;
+}) {
   return (
     <section className="panel launcher">
       <div>
         <p className="eyebrow">New qualification run</p>
         <h2>Choose the market you want to investigate</h2>
-        <p className="subtle">The agent will discover events, source exhibitors, enrich companies, and rank the results.</p>
+        <p className="subtle">
+          The agent will discover events, source exhibitors, enrich companies,
+          and rank the results.
+        </p>
       </div>
       {icps.length ? (
         <form className="launchForm" action="/api/runs" method="post">
-          <label className="selectField"><span>Ideal customer profile</span>
+          <label className="selectField">
+            <span>Ideal customer profile</span>
             <ICPSelector
               options={icps.map(({ id, name }) => ({ id, name }))}
               selectedICPId={selectedICP?.id}
             />
           </label>
-          <button className="primaryButton" type="submit">Run pipeline <span>→</span></button>
-          <Link className="secondaryButton" href="/?new-icp=1#new-icp">Add ICP</Link>
+          <button className="primaryButton" type="submit">
+            Run pipeline <span>→</span>
+          </button>
+          <Link className="secondaryButton" href="/?new-icp=1#new-icp">
+            Add ICP
+          </Link>
         </form>
       ) : (
-        <div className="emptyLaunch"><span>Create an ICP before starting a run.</span><Link className="primaryButton" href="/?new-icp=1#new-icp">Create ICP</Link></div>
+        <div className="emptyLaunch">
+          <span>Create an ICP before starting a run.</span>
+          <Link className="primaryButton" href="/?new-icp=1#new-icp">
+            Create ICP
+          </Link>
+        </div>
       )}
       {selectedICP ? (
         <details className="icpPreview" key={selectedICP.id}>
@@ -139,134 +218,680 @@ function PipelineLauncher({ icps, selectedICP }: { icps: SavedICP[]; selectedICP
   );
 }
 
-function Metric({ label, value, detail, accent = false }: { label: string; value: number; detail: string; accent?: boolean }) {
-  return <article className={`metric ${accent ? "accent" : ""}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>;
+function Metric({
+  label,
+  value,
+  detail,
+  accent = false,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  accent?: boolean;
+}) {
+  return (
+    <article className={`metric ${accent ? "accent" : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
 }
 
-function RunHistory({ runs, selectedRunId }: { runs: Run[]; selectedRunId?: number }) {
+function RunHistory({
+  runs,
+  selectedRunId,
+}: {
+  runs: Run[];
+  selectedRunId?: number;
+}) {
   return (
     <aside className="panel runHistory">
-      <div className="panelTitle"><div><p className="eyebrow">Activity</p><h2>Recent runs</h2></div><span className="count">{runs.length}</span></div>
+      <div className="panelTitle">
+        <div>
+          <p className="eyebrow">Activity</p>
+          <h2>Recent runs</h2>
+        </div>
+        <span className="count">{runs.length}</span>
+      </div>
       <nav>
-        {runs.length ? runs.map((run) => (
-          <Link className={`runLink ${run.id === selectedRunId ? "selected" : ""}`} href={`/runs/${run.id}`} key={run.id}>
-            <span className={`statusIcon ${run.status}`}>{run.status === "completed" ? "✓" : run.status === "failed" ? "!" : "•"}</span>
-            <span className="runCopy"><strong>{runName(run)}</strong><small>{formatDate(run.startedAt)}</small></span>
-            <span className="chevron">›</span>
-          </Link>
-        )) : <p className="asideEmpty">Your pipeline runs will appear here.</p>}
+        {runs.length ? (
+          runs.map((run) => (
+            <Link
+              className={`runLink ${run.id === selectedRunId ? "selected" : ""}`}
+              href={`/runs/${run.id}`}
+              key={run.id}
+            >
+              <span className={`statusIcon ${run.status}`}>
+                {run.status === "completed"
+                  ? "✓"
+                  : run.status === "failed"
+                    ? "!"
+                    : "•"}
+              </span>
+              <span className="runCopy">
+                <strong>{runName(run)}</strong>
+                <small>{formatDate(run.startedAt)}</small>
+              </span>
+              <span className="chevron">›</span>
+            </Link>
+          ))
+        ) : (
+          <p className="asideEmpty">Your pipeline runs will appear here.</p>
+        )}
       </nav>
     </aside>
   );
 }
 
-function RunOverview({ run, artifacts }: { run: Run; artifacts: StageArtifact[] }) {
+function RunOverview({
+  run,
+  artifacts,
+}: {
+  run: Run;
+  artifacts: StageArtifact[];
+}) {
+  const input = objectValue(run.rootInput);
+  const resumedFrom = finitePositiveInteger(input.resumed_from_run_id);
+  const resumable =
+    run.status === "failed" &&
+    artifacts.some(
+      (artifact) =>
+        artifact.stage === "event_sourcing" && artifact.status === "completed",
+    );
+
   return (
     <section className="panel runOverview">
       <div className="runHeading">
-        <div><p className="eyebrow">Run #{run.id}</p><h2>{runName(run)}</h2><p className="subtle">Started {formatDate(run.startedAt)}</p></div>
-        <StatusBadge status={run.status} />
+        <div>
+          <p className="eyebrow">Run #{run.id}</p>
+          <h2>{runName(run)}</h2>
+          <p className="subtle">
+            Started {formatDate(run.startedAt)}
+            {resumedFrom ? (
+              <>
+                {" "}
+                · Resumed from{" "}
+                <Link href={`/runs/${resumedFrom}`}>run #{resumedFrom}</Link>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <div className="runActions">
+          <StatusBadge status={run.status} />
+          {resumable ? (
+            <form action="/api/runs" method="post">
+              <input name="resumeRunId" type="hidden" value={run.id} />
+              <button className="secondaryButton" type="submit">
+                Resume run
+              </button>
+            </form>
+          ) : null}
+          {run.status !== "running" ? <DeleteRunButton runId={run.id} /> : null}
+        </div>
       </div>
       <div className="stageRail">
         {pipelineStages.map(([key, label], index) => {
-          const stageArtifacts = artifacts.filter((artifact) => artifact.stage === key);
-          const hasFailure = stageArtifacts.some((artifact) => artifact.status === "failed");
-          const complete = stageArtifacts.some((artifact) => artifact.status === "completed");
-          const state = hasFailure && !complete ? "failed" : complete ? "complete" : run.status === "running" ? "pending" : "idle";
-          return <div className={`stage ${state}`} key={key}><span>{complete ? "✓" : hasFailure ? "!" : index + 1}</span><div><strong>{label}</strong><small>{stageSummary(key, stageArtifacts, run.status)}</small></div></div>;
+          const stageArtifacts = artifacts.filter(
+            (artifact) => artifact.stage === key,
+          );
+          const hasFailure = stageArtifacts.some(
+            (artifact) => artifact.status === "failed",
+          );
+          const complete = stageArtifacts.some(
+            (artifact) => artifact.status === "completed",
+          );
+          const state =
+            hasFailure && !complete
+              ? "failed"
+              : complete
+                ? "complete"
+                : run.status === "running"
+                  ? "pending"
+                  : "idle";
+          return (
+            <div className={`stage ${state}`} key={key}>
+              <span>{complete ? "✓" : hasFailure ? "!" : index + 1}</span>
+              <div>
+                <strong>{label}</strong>
+                <small>{stageSummary(key, stageArtifacts, run.status)}</small>
+              </div>
+            </div>
+          );
         })}
       </div>
-      {run.error ? <div className="error"><strong>Run stopped</strong><span>{run.error}</span></div> : null}
+      {run.error ? (
+        <div className="error">
+          <strong>Run stopped</strong>
+          <span>{run.error}</span>
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function LeadResults({ leads, running }: { leads: LeadView[]; running: boolean }) {
+function ResultTabs({
+  runId,
+  activeTab,
+  events,
+  companies,
+  enrichedLeads,
+  qualifiedLeads,
+  running,
+}: {
+  runId: number;
+  activeTab: DashboardTab;
+  events: EventView[];
+  companies: SourcedCompanyView[];
+  enrichedLeads: LeadView[];
+  qualifiedLeads: LeadView[];
+  running: boolean;
+}) {
+  const tabs: Array<[DashboardTab, string, number]> = [
+    ["events", "Events", events.length],
+    ["companies", "Companies", companies.length],
+    ["enriched", "Enriched companies", enrichedLeads.length],
+    ["qualified", "Qualified companies", qualifiedLeads.length],
+  ];
+
   return (
     <section className="resultsSection">
-      <div className="sectionHeading"><div><p className="eyebrow">Sales queue</p><h2>Qualified companies</h2><p className="subtle">Ranked by ICP fit and confidence in the available evidence.</p></div><span className="resultCount">{leads.length} companies</span></div>
-      {leads.length ? <div className="leadList">{leads.map((lead) => <LeadCard lead={lead} key={lead.domain} />)}</div> : (
-        <div className="panel emptyResults"><span className="emptyIcon">⌁</span><h3>{running ? "Research is underway" : "No qualified companies yet"}</h3><p>{running ? "This view updates as company profiles and assessments arrive." : "Start a pipeline run to build an evidence-backed sales queue."}</p></div>
-      )}
+      <nav className="resultTabs" aria-label="Run data">
+        {tabs.map(([key, label, count]) => (
+          <Link
+            className={activeTab === key ? "active" : ""}
+            href={`/runs/${runId}?tab=${key}#results`}
+            aria-current={activeTab === key ? "page" : undefined}
+            key={key}
+          >
+            {label} <span>{count}</span>
+          </Link>
+        ))}
+      </nav>
+      <div id="results">
+        {activeTab === "events" ? (
+          <EventResults runId={runId} events={events} running={running} />
+        ) : activeTab === "companies" ? (
+          <CompanyResults companies={companies} running={running} />
+        ) : activeTab === "enriched" ? (
+          <LeadResults
+            leads={enrichedLeads}
+            running={running}
+            title="Enriched companies"
+            eyebrow="Available profiles"
+            description="Every company with a saved enrichment profile, including those not yet qualified."
+          />
+        ) : (
+          <LeadResults
+            leads={qualifiedLeads}
+            running={running}
+            title="Qualified companies"
+            eyebrow="Sales queue"
+            description="Ranked by ICP fit and confidence in the available evidence."
+          />
+        )}
+      </div>
     </section>
+  );
+}
+
+function EventResults({
+  runId,
+  events,
+  running,
+}: {
+  runId: number;
+  events: EventView[];
+  running: boolean;
+}) {
+  return (
+    <>
+      <ResultsHeading
+        eyebrow="Discovery inventory"
+        title="Sourced events"
+        description="Choose any event with a company directory to source and enrich its participating companies."
+        count={`${events.length} events`}
+      />
+      {events.length ? (
+        <div className="inventoryGrid">
+          {events.map((event) => (
+            <article className="panel inventoryCard" key={`${event.name}:${event.discoveryUrl}`}>
+              <div className="inventoryHeader">
+                <div>
+                  <span className={`inventoryStatus ${event.selectedForSourcing ? "selected" : "available"}`}>
+                    {event.selectedForSourcing ? "Used for sourcing" : "Discovered"}
+                  </span>
+                  <h3>{event.name}</h3>
+                </div>
+                <strong className="relevanceScore">
+                  {event.relevanceScore === null
+                    ? "-"
+                    : `${Math.round(event.relevanceScore * 100)}%`}
+                  <small> relevance</small>
+                </strong>
+              </div>
+              <p>{event.summary ?? "No event summary was returned."}</p>
+              <div className="inventoryFooter">
+                <div className="inventoryLinks">
+                  {event.discoveryUrl ? (
+                    <a href={event.discoveryUrl} target="_blank" rel="noreferrer">
+                      Event source ↗
+                    </a>
+                  ) : null}
+                  {event.companySourceUrl ? (
+                    <a href={event.companySourceUrl} target="_blank" rel="noreferrer">
+                      {event.companySourceType
+                        ? titleCase(event.companySourceType)
+                        : "Company directory"} ↗
+                    </a>
+                  ) : (
+                    <span>No company directory found</span>
+                  )}
+                </div>
+                {event.companySourceUrl ? (
+                  <form action="/api/runs" method="post">
+                    <input name="eventRunId" type="hidden" value={runId} />
+                    <input name="eventName" type="hidden" value={event.name} />
+                    <button
+                      className="eventEnrichmentButton"
+                      disabled={running}
+                      type="submit"
+                    >
+                      {running
+                        ? "Run in progress"
+                        : event.selectedForSourcing
+                          ? "Enrich again"
+                          : "Enrich companies"}
+                      {!running ? <span>→</span> : null}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <InventoryEmpty
+          running={running}
+          title="No events discovered yet"
+          detail="Event candidates will appear here as soon as discovery completes."
+        />
+      )}
+    </>
+  );
+}
+
+function CompanyResults({
+  companies,
+  running,
+}: {
+  companies: SourcedCompanyView[];
+  running: boolean;
+}) {
+  return (
+    <>
+      <ResultsHeading
+        eyebrow="Sourcing inventory"
+        title="Sourced companies"
+        description="Every company found in an event directory, including companies that were skipped, failed, or have not reached enrichment."
+        count={`${companies.length} companies`}
+      />
+      {companies.length ? (
+        <div className="companyTable panel">
+          <div className="companyTableHeader" aria-hidden="true">
+            <span>Company</span>
+            <span>Event</span>
+            <span>Booth</span>
+            <span>Enrichment</span>
+            <span>Source</span>
+          </div>
+          {companies.map((company) => (
+            <article className="companyRow" key={company.key}>
+              <div className="companyIdentity">
+                <strong>{company.name}</strong>
+                {company.companyUrl ? (
+                  <a href={company.companyUrl} target="_blank" rel="noreferrer">
+                    Company site ↗
+                  </a>
+                ) : (
+                  <small>No company site sourced</small>
+                )}
+              </div>
+              <span className="companyEvent">{company.event}</span>
+              <span className="companyBooth">{company.booth ?? "-"}</span>
+              <div className="enrichmentCell">
+                <EnrichmentBadge company={company} />
+                {company.enrichmentDetail ? <small>{company.enrichmentDetail}</small> : null}
+              </div>
+              <div className="sourceLinks">
+                {company.profileUrl ? (
+                  <a href={company.profileUrl} target="_blank" rel="noreferrer">Profile ↗</a>
+                ) : null}
+                {company.evidenceUrl ? (
+                  <a href={company.evidenceUrl} target="_blank" rel="noreferrer">Evidence ↗</a>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <InventoryEmpty
+          running={running}
+          title="No companies sourced yet"
+          detail="Companies will remain visible here even when enrichment does not produce a match."
+        />
+      )}
+    </>
+  );
+}
+
+function EnrichmentBadge({ company }: { company: SourcedCompanyView }) {
+  const labels = {
+    enriched: "Enriched",
+    not_enriched: "Not enriched",
+    failed: "Failed",
+    not_attempted: "Not attempted",
+  } as const;
+  return (
+    <span className={`enrichmentBadge ${company.enrichmentStatus}`}>
+      {labels[company.enrichmentStatus]}
+    </span>
+  );
+}
+
+function LeadResults({
+  leads,
+  running,
+  title,
+  eyebrow,
+  description,
+}: {
+  leads: LeadView[];
+  running: boolean;
+  title: string;
+  eyebrow: string;
+  description: string;
+}) {
+  return (
+    <>
+      <ResultsHeading
+        eyebrow={eyebrow}
+        title={title}
+        description={description}
+        count={`${leads.length} companies`}
+      />
+      {leads.length ? (
+        <div className="leadList">
+          {leads.map((lead) => (
+            <LeadCard lead={lead} key={lead.domain} />
+          ))}
+        </div>
+      ) : (
+        <InventoryEmpty
+          running={running}
+          title={`No ${title.toLocaleLowerCase("en-US")} yet`}
+          detail="This view updates as company profiles and assessments arrive."
+        />
+      )}
+    </>
+  );
+}
+
+function ResultsHeading({
+  eyebrow,
+  title,
+  description,
+  count,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  count: string;
+}) {
+  return (
+    <div className="sectionHeading">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+        <p className="subtle">{description}</p>
+      </div>
+      <span className="resultCount">{count}</span>
+    </div>
+  );
+}
+
+function InventoryEmpty({
+  running,
+  title,
+  detail,
+}: {
+  running: boolean;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <div className="panel emptyResults">
+      <span className="emptyIcon">⌁</span>
+      <h3>{running ? "Research is underway" : title}</h3>
+      <p>{running ? "This view updates as the pipeline saves new data." : detail}</p>
+    </div>
   );
 }
 
 function LeadCard({ lead }: { lead: LeadView }) {
   return (
     <article className="panel leadCard">
-      <div className="rank">{lead.rank ? String(lead.rank).padStart(2, "0") : "--"}</div>
+      <div className="rank">
+        {lead.rank ? String(lead.rank).padStart(2, "0") : "--"}
+      </div>
       <div className="leadBody">
         <div className="leadHeader">
-          <div><span className="eventTag">{lead.event}</span><h3>{lead.name}</h3><a href={lead.companyUrl} target="_blank" rel="noreferrer">{lead.domain} ↗</a></div>
-          <div className="ratings"><Rating label="Fit" value={lead.fit} /><Rating label="Confidence" value={lead.confidence} /></div>
+          <div>
+            <span className="eventTag">{lead.event}</span>
+            <h3>{lead.name}</h3>
+            <a href={lead.companyUrl} target="_blank" rel="noreferrer">
+              {lead.domain} ↗
+            </a>
+          </div>
+          <div className="ratings">
+            <Rating label="Fit" value={lead.fit} />
+            <Rating label="Confidence" value={lead.confidence} />
+          </div>
         </div>
         <div className="leadFacts">
-          <Fact label="Employees" value={lead.employeeCount?.toLocaleString() ?? "Unknown"} />
+          <Fact
+            label="Employees"
+            value={lead.employeeCount?.toLocaleString() ?? "Unknown"}
+          />
           <Fact label="Revenue" value={lead.revenue ?? "Unknown"} />
           <Fact label="Decision-maker" value="Not sourced" muted />
           <Fact label="Outreach" value="Not drafted" muted />
         </div>
-        <div className="assessment"><p className="assessmentLabel">Why this company</p><p>{lead.rationale ?? "Qualification is still pending for this company."}</p></div>
-        {lead.evidence.length ? <details className="evidence"><summary>{lead.evidence.length} supporting evidence point{lead.evidence.length === 1 ? "" : "s"}</summary><ul>{lead.evidence.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
+        <div className="assessment">
+          <p className="assessmentLabel">Why this company</p>
+          <p>
+            {lead.rationale ??
+              "Qualification is still pending for this company."}
+          </p>
+        </div>
+        {lead.evidence.length ? (
+          <details className="evidence">
+            <summary>
+              {lead.evidence.length} supporting evidence point
+              {lead.evidence.length === 1 ? "" : "s"}
+            </summary>
+            <ul>
+              {lead.evidence.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
       </div>
     </article>
   );
 }
 
 function Rating({ label, value }: { label: string; value: string | null }) {
-  return <div className="rating"><span>{label}</span><strong className={value ?? "pending"}>{value ?? "Pending"}</strong></div>;
+  return (
+    <div className="rating">
+      <span>{label}</span>
+      <strong className={value ?? "pending"}>{value ?? "Pending"}</strong>
+    </div>
+  );
 }
 
-function Fact({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
-  return <div><span>{label}</span><strong className={muted ? "mutedValue" : ""}>{value}</strong></div>;
+function Fact({
+  label,
+  value,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong className={muted ? "mutedValue" : ""}>{value}</strong>
+    </div>
+  );
 }
 
 function ArtifactDetails({ artifacts }: { artifacts: StageArtifact[] }) {
   return (
     <details className="panel developerDetails">
-      <summary><span><b>Developer trace</b><small>{artifacts.length} persisted stage artifacts</small></span><span>View details +</span></summary>
+      <summary>
+        <span>
+          <b>Developer trace</b>
+          <small>{artifacts.length} persisted stage artifacts</small>
+        </span>
+        <span>View details +</span>
+      </summary>
       <div className="artifactList">
-        {artifacts.map((artifact) => <details key={artifact.id}><summary><span>{titleCase(artifact.stage)}{artifact.companyDomain ? ` · ${artifact.companyDomain}` : ""}</span><StatusBadge status={artifact.status} /></summary><div className="artifactJson"><pre>{JSON.stringify({ input: artifact.input, output: artifact.output, error: artifact.error }, null, 2)}</pre></div></details>)}
+        {artifacts.map((artifact) => (
+          <details key={artifact.id}>
+            <summary>
+              <span>
+                {titleCase(artifact.stage)}
+                {artifact.companyDomain ? ` · ${artifact.companyDomain}` : ""}
+              </span>
+              <StatusBadge status={artifact.status} />
+            </summary>
+            <div className="artifactJson">
+              <pre>
+                {JSON.stringify(
+                  {
+                    input: artifact.input,
+                    output: artifact.output,
+                    error: artifact.error,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </div>
+          </details>
+        ))}
       </div>
     </details>
   );
 }
 
-function StatusBadge({ status }: { status: Run["status"] | StageArtifact["status"] }) {
-  return <span className={`statusBadge ${status}`}><i />{titleCase(status)}</span>;
+function StatusBadge({
+  status,
+}: {
+  status: Run["status"] | StageArtifact["status"];
+}) {
+  return (
+    <span className={`statusBadge ${status}`}>
+      <i />
+      {titleCase(status)}
+    </span>
+  );
 }
 
 function EmptyState() {
-  return <section className="panel emptyResults large"><span className="emptyIcon">◇</span><h2>No pipeline runs yet</h2><p>Create an ICP and start a run. Results will appear here as the agents complete each stage.</p></section>;
+  return (
+    <section className="panel emptyResults large">
+      <span className="emptyIcon">◇</span>
+      <h2>No pipeline runs yet</h2>
+      <p>
+        Create an ICP and start a run. Results will appear here as the agents
+        complete each stage.
+      </p>
+    </section>
+  );
 }
 
 function runName(run: Run): string {
   const input = objectValue(run.rootInput);
-  return typeof input.icp_name === "string" ? input.icp_name : run.label ?? titleCase(run.mode);
+  return typeof input.icp_name === "string"
+    ? input.icp_name
+    : (run.label ?? titleCase(run.mode));
 }
 
-function stageSummary(stage: string, artifacts: StageArtifact[], status: Run["status"]): string {
-  if (!artifacts.length) return status === "running" ? "Waiting" : "Not reached";
-  if (artifacts.some((artifact) => artifact.status === "failed") && !artifacts.some((artifact) => artifact.status === "completed")) return "Needs attention";
-  const completed = artifacts.filter((artifact) => artifact.status === "completed").length;
-  if (stage === "company_enrichment" || stage === "company_qualification") return `${completed} processed`;
+function stageSummary(
+  stage: string,
+  artifacts: StageArtifact[],
+  status: Run["status"],
+): string {
+  if (!artifacts.length)
+    return status === "running" ? "Waiting" : "Not reached";
+  if (
+    artifacts.some((artifact) => artifact.status === "failed") &&
+    !artifacts.some((artifact) => artifact.status === "completed")
+  )
+    return "Needs attention";
+  const completed = artifacts.filter(
+    (artifact) => artifact.status === "completed",
+  ).length;
+  if (stage === "company_enrichment" || stage === "company_qualification")
+    return `${completed} processed`;
   return "Complete";
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function dashboardTab(value: string | undefined): DashboardTab {
+  return value === "events" ||
+    value === "enriched" ||
+    value === "qualified"
+    ? value
+    : "companies";
 }
 
 function compareLeads(left: LeadView, right: LeadView): number {
-  return (left.rank ?? Number.MAX_SAFE_INTEGER) - (right.rank ?? Number.MAX_SAFE_INTEGER);
+  return (
+    (left.rank ?? Number.MAX_SAFE_INTEGER) -
+    (right.rank ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+function finitePositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : null;
 }
 
 function titleCase(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function formatDate(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
+  return Number.isNaN(date.valueOf())
+    ? value
+    : new Intl.DateTimeFormat("en", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(date);
 }

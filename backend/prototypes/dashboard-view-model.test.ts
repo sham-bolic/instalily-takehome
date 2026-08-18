@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { toLeadView } from "../../app/lib/dashboard-data.ts";
-import type { CompanyProfile } from "./pipeline-database.ts";
+import {
+  toLeadView,
+  toPipelineInventory,
+} from "../../app/lib/dashboard-data.ts";
+import type {
+  CompanyProfile,
+  StageArtifact,
+} from "./pipeline-database.ts";
 
 test("maps a persisted profile into a sales-facing lead", () => {
   const profile: CompanyProfile = {
@@ -46,6 +52,153 @@ test("maps a persisted profile into a sales-facing lead", () => {
     revenue: "$75M",
   });
 });
+
+test("builds a complete inventory from sourcing and enrichment artifacts", () => {
+  const artifacts: StageArtifact[] = [
+    artifact(1, "event_sourcing", {
+      events: [
+        {
+          name: "ISA Sign Expo",
+          discovery_url: "https://events.example/isa",
+          summary: "Sign and graphics industry event.",
+          relevance_score: 0.91,
+          company_source: {
+            type: "exhibitor_directory",
+            url: "https://events.example/isa/exhibitors",
+          },
+        },
+        {
+          name: "Print Expo",
+          discovery_url: "https://events.example/print",
+          summary: "Printing event without a usable directory.",
+          relevance_score: 0.72,
+          company_source: null,
+        },
+      ],
+    }),
+    artifact(2, "company_sourcing", {
+      event: {
+        name: "ISA Sign Expo",
+        exhibitor_directory_url: "https://events.example/isa/exhibitors",
+      },
+      companies: [
+        {
+          name: "Enriched Graphics",
+          booth: "101",
+          profile_url: "https://events.example/companies/enriched",
+          company_url: "https://enriched.example",
+          attendance_evidence: {
+            type: "official_exhibitor_directory",
+            url: "https://events.example/isa/exhibitors",
+          },
+        },
+        {
+          name: "Skipped Signs",
+          booth: null,
+          profile_url: null,
+          company_url: null,
+          attendance_evidence: {
+            type: "official_exhibitor_directory",
+            url: "https://events.example/isa/exhibitors",
+          },
+        },
+        {
+          name: "Waiting Wraps",
+          booth: "303",
+          profile_url: null,
+          company_url: "https://waiting.example",
+          attendance_evidence: {
+            type: "official_exhibitor_directory",
+            url: "https://events.example/isa/exhibitors",
+          },
+        },
+      ],
+    }),
+    artifact(3, "company_enrichment", {
+      status: "enriched",
+      company_url: "https://enriched.example",
+    }, {
+      event: "ISA Sign Expo",
+      company: { name: "Enriched Graphics", website: "https://enriched.example" },
+    }),
+    artifact(4, "company_enrichment", {
+      status: "skipped",
+      reason: "apollo_organization_not_resolved",
+    }, {
+      event: "ISA Sign Expo",
+      company: { name: "Skipped Signs", website: null },
+    }),
+  ];
+  const profiles: CompanyProfile[] = [{
+    id: 1,
+    runId: 1,
+    domain: "enriched.example",
+    companyUrl: "https://enriched.example",
+    updatedAt: "2026-08-17T00:00:00.000Z",
+    profile: { name: "Enriched Graphics", event: "ISA Sign Expo" },
+  }];
+
+  const inventory = toPipelineInventory(artifacts, profiles);
+
+  assert.equal(inventory.events.length, 2);
+  assert.equal(inventory.events[0]?.selectedForSourcing, true);
+  assert.equal(inventory.events[1]?.selectedForSourcing, false);
+  assert.deepEqual(
+    inventory.companies.map((company) => [company.name, company.enrichmentStatus]),
+    [
+      ["Enriched Graphics", "enriched"],
+      ["Skipped Signs", "not_enriched"],
+      ["Waiting Wraps", "not_attempted"],
+    ],
+  );
+});
+
+test("keeps sourced companies visible when enrichment fails", () => {
+  const failed = artifact(1, "company_enrichment", null, {
+    event: "ISA Sign Expo",
+    company: { name: "Broken Graphics", website: "https://broken.example" },
+  }, "failed");
+  failed.error = "Provider unavailable";
+
+  const inventory = toPipelineInventory([
+    artifact(2, "company_sourcing", {
+      event: { name: "ISA Sign Expo", exhibitor_directory_url: "https://events.example/directory" },
+      companies: [{
+        name: "Broken Graphics",
+        booth: null,
+        profile_url: null,
+        company_url: "https://broken.example",
+        attendance_evidence: { type: "official_exhibitor_directory", url: "https://events.example/directory" },
+      }],
+    }),
+    failed,
+  ], []);
+
+  assert.equal(inventory.companies[0]?.enrichmentStatus, "failed");
+  assert.equal(inventory.companies[0]?.enrichmentDetail, "Provider unavailable");
+});
+
+function artifact(
+  id: number,
+  stage: string,
+  output: unknown,
+  input: unknown = {},
+  status: StageArtifact["status"] = "completed",
+): StageArtifact {
+  return {
+    id,
+    runId: 1,
+    stage,
+    companyDomain: null,
+    status,
+    input,
+    output,
+    error: null,
+    provider: null,
+    startedAt: "2026-08-17T00:00:00.000Z",
+    finishedAt: "2026-08-17T00:00:01.000Z",
+  };
+}
 
 test("keeps unavailable sales facts explicit", () => {
   const profile: CompanyProfile = {

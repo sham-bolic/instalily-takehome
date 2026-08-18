@@ -120,8 +120,8 @@ test("runs the complete pipeline with the selected persisted ICP", async () => {
         findEvents: async (icp) => ({
           searched_at: "2026-08-17T00:00:00.000Z",
           icp,
-          query: "fixed test query",
-          request_id: "fixed-request",
+          queries: ["fixed test query"],
+          request_ids: ["fixed-request"],
           events: [{
             name: "Fixed Expo",
             discovery_url: "https://events.example/expo",
@@ -150,10 +150,21 @@ test("runs the complete pipeline with the selected persisted ICP", async () => {
             },
           }],
         }),
-        enrichCompany: async (companyUrl) => ({
+        researchCompany: async (company) => ({
+          researched_at: "2026-08-17T00:00:00.000Z",
+          query: `\"${company.name}\" company information`,
+          request_id: "fixed-research",
+          company_url: company.knownWebsite,
+          identity_confidence: "high",
+          summary: "Fixed general company information.",
+          sources: [],
+        }),
+        enrichCompany: async (company) => ({
           enriched_at: "2026-08-17T00:00:00.000Z",
           provider: { name: "fixed-apollo" },
-          provider_response: { organization: { website_url: companyUrl } },
+          provider_response: {
+            organization: { website_url: company.website },
+          },
         }),
         qualifyCompany: async () => ({
           fit: "high",
@@ -190,12 +201,19 @@ test("runs the complete pipeline with the selected persisted ICP", async () => {
       icp_id: selectedId,
       icp_name: "Selected ICP",
       icp_snapshot: selectedSnapshot,
-      event_threshold: 0.7,
-      enrichment_limit: 5,
+      event_threshold: 0.5,
+      enrichment_limit: 10,
     });
     assert.deepEqual(
       database.listStageArtifacts(run.id).map((artifact) => artifact.stage),
-      ["event_sourcing", "company_sourcing", "company_enrichment", "company_qualification"],
+      [
+        "event_sourcing",
+        "company_sourcing",
+        "company_research",
+        "apollo_enrichment",
+        "company_enrichment",
+        "company_qualification",
+      ],
     );
     assert.equal(database.listCompanyProfiles(run.id).length, 1);
     assert.equal(response.headers.get("location"), `/?run=${run.id}&icp=${selectedId}`);

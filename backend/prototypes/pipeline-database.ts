@@ -141,6 +141,13 @@ export class PipelineDatabase {
     ).map(toRun);
   }
 
+  deleteRun(id: number): boolean {
+    const result = this.#database
+      .prepare("DELETE FROM runs WHERE id = ? AND status != 'running'")
+      .run(id);
+    return result.changes === 1;
+  }
+
   createICP({ name, snapshot }: { name: string; snapshot: ICPSnapshot }): number {
     const cleanName = name.trim();
     if (!cleanName) throw new Error("Enter an ICP name.");

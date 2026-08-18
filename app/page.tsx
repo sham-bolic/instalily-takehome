@@ -13,6 +13,7 @@ export default async function Home({ searchParams }: PageProps) {
     <Dashboard
       requestedICPId={positiveInteger(query.icp)}
       showICPBuilder={query["new-icp"] === "1"}
+      selectedTab={single(query.tab)}
       error={single(query.error)}
     />
   );
