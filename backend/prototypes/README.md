@@ -6,8 +6,9 @@ The sourcing flow is split into independent probes so each stage can be tested b
 
 1. Event sourcing: ICP in, event candidates out
 2. Company sourcing: selected event in, company candidates out
-3. Company enrichment: selected company in, factual company profile out
-4. Company qualification: enriched profile and ICP in, evidence-backed assessment out
+3. Company research: one neutral Tavily search per company resolves identity and collects general public-web information
+4. Company enrichment: the resolved domain is optionally matched to Apollo and merged with public-web research
+5. Company qualification: enriched profile and ICP in, evidence-backed assessment out
 
 All four stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini 3.7 Flash through the Vercel AI SDK.
 
@@ -22,14 +23,15 @@ npm run pipeline -- \
 
 The pipeline:
 
-1. Discovers events and keeps those with a recognized company directory and a Tavily relevance score of at least `0.7`.
+1. Discovers events and keeps those with a recognized company directory and a Tavily relevance score of at least `0.5`.
 2. Tries the highest-scoring event first, falling back to the next qualifying event if its directory fails.
-3. Sources companies from the first working directory.
-4. Skips and records companies without a published website.
-5. Enriches at most five companies with Apollo, reusing earlier successful artifacts when available.
-6. Assesses each enriched company against the ICP with Gemini and validates the structured response.
-7. Ranks companies by categorical fit and confidence.
-8. Continues after individual enrichment or qualification failures and records them for inspection.
+3. Sources up to ten companies from the first working directory and follows exhibitor profile links to find published company websites.
+4. Runs one broad, ICP-independent Tavily search per company to collect general information and resolve missing websites.
+5. Sends the resolved website and domain to Apollo, then keeps the Tavily profile when Apollo has no match or fails.
+6. Reuses earlier successful Apollo artifacts when a company domain is already known.
+7. Assesses each enriched company against the ICP with Gemini and validates the structured response.
+8. Ranks companies by categorical fit and confidence.
+9. Continues after individual research, enrichment, or qualification failures and records them for inspection.
 
 Event discovery is a required stage. A run fails when discovery fails, no event meets the threshold, or no qualifying event has a usable directory. Individual company failures do not fail the run.
 
@@ -48,7 +50,7 @@ Copy the example environment file and add the keys required by the stages you wa
 cp .env.example .env
 ```
 
-The connected pipeline requires `TAVILY_API_KEY`, `APOLLO_API_KEY` for uncached companies, and `GOOGLE_GENERATIVE_AI_API_KEY`.
+The connected pipeline requires `TAVILY_API_KEY`, `APOLLO_API_KEY` for uncached Apollo enrichment, and `GOOGLE_GENERATIVE_AI_API_KEY`. Gemini calls default to `gemini-3.5-flash-lite`; set `GOOGLE_GENERATIVE_AI_MODEL` to override the model without changing code. Each company research step makes exactly one basic Tavily search with at most five results and does not retry.
 
 Google's Gemini free tier may use submitted content to improve its products. Do not send confidential, personal, or otherwise sensitive data through the free tier.
 
@@ -64,7 +66,7 @@ Open the Next.js lead intelligence dashboard with:
 npm run dashboard
 ```
 
-Then visit [http://localhost:4173](http://localhost:4173). The dashboard stores multiple named ICPs in SQLite. Choose one from the pipeline target dropdown or use **Add ICP** to open the prefilled DuPont Tedlar form. Creating an ICP formats the supplied answers without web research or an LLM. Clicking **Run pipeline** starts the complete live pipeline with an immutable copy of the selected ICP. The dashboard polls while a run is active and presents ranked company, event, qualification rationale, evidence, size, and revenue data as it becomes available. Raw stage artifacts remain available in the collapsed developer trace. Set `PORT` to use another port.
+Then visit [http://localhost:4173](http://localhost:4173). The dashboard stores multiple named ICPs in SQLite. Choose one from the pipeline target dropdown or use **Add ICP** to open the prefilled DuPont Tedlar form. Creating an ICP formats the supplied answers without web research or an LLM. Clicking **Run pipeline** starts the complete live pipeline with an immutable copy of the selected ICP. A failed run with completed event discovery can be resumed from its run overview. Resuming creates a linked run, reuses the persisted discovery artifact, applies the current event threshold, and retries company sourcing and later stages without spending another Tavily request. The dashboard polls while a run is active and presents ranked company, event, qualification rationale, evidence, size, and revenue data as it becomes available. Raw stage artifacts remain available in the collapsed developer trace. Set `PORT` to use another port.
 
 Create and serve an optimized production build with `npm run build` followed by `npm start`. The dashboard uses the Next.js Node runtime because its SQLite driver is not compatible with the Edge runtime.
 
@@ -88,15 +90,15 @@ The npm script loads `.env` into `process.env`, and the prototype reads `process
 
 - When the search ran
 - The external ICP
-- The exact Tavily query
-- Tavily's request ID
-- Up to three event candidates
+- The exact Tavily queries
+- Tavily's request IDs
+- Deduplicated event candidates
 - A public company-source URL when the result is an exhibitor, sponsor, speaker, or participant list
 - The source summary and relevance score
 
 Each execution remains available under its own probe run.
 
-The prototype searches directly for participant pages on official event websites. It makes one Tavily request using `basic` search and caps the response at three results to limit credit usage. `company_source` is `null` when a result does not contain a recognizable participant list. No event is automatically selected. First inspect the saved results and explicitly pass an event with an exhibitor directory to company sourcing.
+The prototype makes up to three concise `advanced` searches for target companies, applications, and event signals, with ten results per search. It deduplicates results and, for up to five likely event pages without a directory, runs a focused search for that event's exhibitor list or floor plan. `company_source` is `null` when no recognizable participant list is found. No event is automatically selected. First inspect the saved results and explicitly pass an event with an exhibitor directory to company sourcing.
 
 ## Test company sourcing
 
@@ -110,7 +112,7 @@ npm run company-sourcing -- \
 
 This stage does not receive or evaluate the ICP. Playwright renders the supplied page, including JavaScript content, and Gemini extracts up to ten explicitly listed companies. When the page links to an actual directory or embeds one in an iframe, the stage follows that URL once. Every accepted company name must appear in the rendered page text, and every accepted profile or company URL must appear in a real page link. The resolved directory URL is preserved as attendance evidence.
 
-`profile_url` identifies the exhibitor's event profile. `company_url` identifies the company's own website and should be used as the input to enrichment. If the directory does not publish a company website, `company_url` remains `null` rather than being guessed. Rerunning the stage uses Gemini but does not consume Tavily credits.
+`profile_url` identifies the exhibitor's event profile. `company_url` identifies the company's own website and should be used as the preferred input to enrichment. When the directory only publishes a profile link, Playwright opens that profile and accepts a clearly labeled external company website. If neither page publishes a company website, `company_url` remains `null` rather than being guessed. Rerunning the stage uses Gemini but does not consume Tavily credits.
 
 Results are saved as a SQLite stage artifact under a new probe run.
 
@@ -122,7 +124,7 @@ Pass an official company URL directly:
 npm run company-enrichment -- "https://www.abc-int.it"
 ```
 
-The prototype derives the domain and sends the website and domain to Apollo. It does not load company-sourcing results, accept a company name, or fall back to name-based matching. Connecting a sourced company to this stage is the future orchestrator's responsibility.
+The standalone probe derives the domain and sends the website and domain to Apollo. In the connected pipeline, enrichment also sends the exhibitor name and falls back to name-only matching when Playwright could not find a published website. Name-only results must match the sourced company name after normalization before their returned domain is accepted.
 
 The response is deliberately not normalized yet. Until real Apollo responses have been inspected, the result contains the request metadata and complete raw provider response. The ICP is not an input because this stage only collects facts.
 
@@ -138,8 +140,8 @@ Apollo charges one credit per organization enrichment. The script makes no reque
 
 - Event search can return third-party participant-list vendors instead of the event's own website. The current prototype preserves the URL but does not yet verify that the event owns its domain.
 - Company extraction currently recognizes linked exhibitor profiles and HTML tables with company and booth columns. Other directory layouts will need additional extraction strategies.
-- Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. Resolving those companies would require a separate identity-resolution step or external API.
-- Apollo fields can be absent, especially for small or private companies. Missing values remain `null`; the prototype does not infer them or fall back to another provider.
-- Company enrichment does not yet search company websites or identify decision-makers.
+- Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. The pipeline uses one Tavily search to resolve them, but ambiguous companies remain unresolved rather than being guessed.
+- Apollo fields can be absent, especially for small or private companies. Missing values remain `null`, and the public-web research remains available when Apollo has no match.
+- Company research stores Tavily's summary and result excerpts but does not crawl company websites or identify decision-makers.
 - Qualification receives the assembled profile, including the raw Apollo response. That response has not yet been normalized into first-class evidence claims and source records.
 - Free Gemini API quotas can change and may throttle a multi-company run. Qualification failures remain isolated to the affected company.
