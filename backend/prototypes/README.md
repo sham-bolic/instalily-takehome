@@ -9,7 +9,7 @@ The sourcing flow is split into independent probes so each stage can be tested b
 3. Company enrichment: selected company in, factual company profile out
 4. Company qualification: enriched profile and ICP in, evidence-backed assessment out
 
-All four stages are connected by a lean pipeline orchestrator. Qualification uses Gemini 3.7 Flash through the Vercel AI SDK.
+All four stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini 3.7 Flash through the Vercel AI SDK.
 
 ## Run the connected pipeline
 
@@ -35,10 +35,11 @@ Event discovery is a required stage. A run fails when discovery fails, no event 
 
 ## Setup
 
-Install the dependencies:
+Install the dependencies and the Chromium browser used to render event directories:
 
 ```bash
 npm install
+npx playwright install chromium
 ```
 
 Copy the example environment file and add the keys required by the stages you want to run:
@@ -107,9 +108,9 @@ npm run company-sourcing -- \
   "https://exhibitor.mroeurope.aviationweek.com/eu26/public/Exhibitors.aspx?CatID=1000252"
 ```
 
-This stage does not receive or evaluate the ICP. It fetches the official directory directly, extracts up to ten exhibitors, and preserves the directory URL as attendance evidence. When the directory links to exhibitor profiles, it also fetches those profiles and extracts the exhibitor's stated company website as `company_url`. It does not call Tavily, so rerunning it does not consume search credits.
+This stage does not receive or evaluate the ICP. Playwright renders the supplied page, including JavaScript content, and Gemini extracts up to ten explicitly listed companies. When the page links to an actual directory or embeds one in an iframe, the stage follows that URL once. Every accepted company name must appear in the rendered page text, and every accepted profile or company URL must appear in a real page link. The resolved directory URL is preserved as attendance evidence.
 
-`profile_url` identifies the exhibitor's event profile. `company_url` identifies the company's own website and should be used as the input to enrichment. If the directory does not publish a company website, `company_url` remains `null` rather than being guessed.
+`profile_url` identifies the exhibitor's event profile. `company_url` identifies the company's own website and should be used as the input to enrichment. If the directory does not publish a company website, `company_url` remains `null` rather than being guessed. Rerunning the stage uses Gemini but does not consume Tavily credits.
 
 Results are saved as a SQLite stage artifact under a new probe run.
 
