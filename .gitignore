@@ -45,6 +45,8 @@ __pycache__/
 *.py[cod]
 dist/
 build/
+.next/
+*.tsbuildinfo
 coverage/
 *.sqlite
 *.sqlite-shm

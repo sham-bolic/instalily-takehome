@@ -57,13 +57,15 @@ The lean SQLite model contains runs, immutable stage artifacts, and assembled co
 
 Each standalone stage command creates a `probe` run and records its input and output. Technical failures are recorded too, so a failed call can be inspected. Apollo enrichment reuses the latest successful artifact for a domain unless `--refresh` is passed. The raw Apollo response remains a stage artifact and is not treated as a normalized company profile.
 
-Open the minimal observability dashboard with:
+Open the Next.js lead intelligence dashboard with:
 
 ```bash
 npm run dashboard
 ```
 
-Then visit [http://localhost:4173](http://localhost:4173). It shows run status, timing, stage inputs and outputs, errors, providers, and assembled company profiles. Set `PORT` to use another port.
+Then visit [http://localhost:4173](http://localhost:4173). The dashboard stores multiple named ICPs in SQLite. Choose one from the pipeline target dropdown or use **Add ICP** to open the prefilled DuPont Tedlar form. Creating an ICP formats the supplied answers without web research or an LLM. Clicking **Run pipeline** starts the complete live pipeline with an immutable copy of the selected ICP. The dashboard polls while a run is active and presents ranked company, event, qualification rationale, evidence, size, and revenue data as it becomes available. Raw stage artifacts remain available in the collapsed developer trace. Set `PORT` to use another port.
+
+Create and serve an optimized production build with `npm run build` followed by `npm start`. The dashboard uses the Next.js Node runtime because its SQLite driver is not compatible with the Edge runtime.
 
 For terminal-based inspection, list all runs or inspect one run with:
 

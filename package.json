@@ -7,7 +7,10 @@
     "company-sourcing": "node backend/prototypes/company-sourcing.ts",
     "company-enrichment": "node --env-file=.env backend/prototypes/company-enrichment.ts",
     "pipeline": "node --env-file=.env backend/prototypes/pipeline.ts",
-    "dashboard": "node backend/prototypes/dashboard.ts",
+    "dashboard": "next dev -p ${PORT:-4173}",
+    "dashboard:legacy": "node --env-file=.env backend/prototypes/dashboard.ts",
+    "build": "next build",
+    "start": "next start -p ${PORT:-4173}",
     "db:inspect": "node backend/prototypes/inspect-pipeline.ts",
     "test": "node --test backend/**/*.test.ts",
     "typecheck": "tsc --noEmit"
@@ -17,10 +20,15 @@
     "@tavily/core": "0.7.7",
     "ai": "7.0.66",
     "cheerio": "1.1.2",
+    "next": "^16.3.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "26.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "typescript": "5.9.3"
   }
 }
