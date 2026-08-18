@@ -214,7 +214,8 @@ function startLiveRun(database: PipelineDatabase, icp: SavedICP): number {
       icpSnapshot: icp.snapshot,
     },
     {
-      findEvents: (icp) => findEvents(tavilyApiKey, icp),
+      findEvents: (value) =>
+        findEvents(tavilyApiKey, value, icp.snapshot.criteria),
       findCompanies,
       enrichCompany: (companyUrl) => enrichCompany(apolloApiKey, companyUrl),
       qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),

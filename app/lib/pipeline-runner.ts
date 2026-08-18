@@ -21,7 +21,8 @@ export function startLivePipeline(icp: SavedICP): number {
       icpSnapshot: icp.snapshot,
     },
     {
-      findEvents: (value) => findEvents(tavilyApiKey, value),
+      findEvents: (value) =>
+        findEvents(tavilyApiKey, value, icp.snapshot.criteria),
       findCompanies,
       enrichCompany: (companyUrl) => enrichCompany(apolloApiKey, companyUrl),
       qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),

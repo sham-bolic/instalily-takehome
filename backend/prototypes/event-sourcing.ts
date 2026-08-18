@@ -2,11 +2,13 @@ import { pathToFileURL } from "node:url";
 
 import { tavily } from "@tavily/core";
 
+import { type ICPFormInput } from "./icp-builder.ts";
 import { PipelineDatabase } from "./pipeline-database.ts";
 import { runStageProbe } from "./stage-probe.ts";
 
 const SEARCH_DEPTH = "basic";
 const MAX_RESULTS = 3;
+const EVENT_QUERY_TARGET_CHARACTERS = 500;
 
 type SearchResult = Awaited<ReturnType<typeof searchTavily>>["results"][number];
 export type CompanySourceType =
@@ -62,17 +64,58 @@ function toEventCandidate(result: SearchResult) {
   };
 }
 
-export async function findEvents(apiKey: string, icp: string) {
-  const now = new Date();
+export function buildEventSearchQuery(
+  icp: string,
+  now: Date,
+  criteria?: ICPFormInput,
+): string {
   const start = new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
     timeZone: "UTC",
   }).format(now);
   const dateRange = `${start} through ${now.getUTCFullYear() + 1}`;
-  const query =
-    `Official exhibitor directories for upcoming ${dateRange} trade shows ` +
-    `relevant to this target market: ${icp}`;
+  const prefix =
+    `Upcoming ${dateRange} trade shows with official exhibitor directories. `;
+  const target = criteria
+    ? structuredSearchTarget(criteria)
+    : `Target market: ${compact(icp)}`;
+
+  return truncate(prefix + target, EVENT_QUERY_TARGET_CHARACTERS);
+}
+
+function structuredSearchTarget(criteria: ICPFormInput): string {
+  const parts = [
+    `Industries: ${truncate(compact(criteria.targetCompanies), 180)}`,
+    `Applications: ${truncate(compact(criteria.applications), 140)}`,
+  ];
+  const geography = compact(criteria.geography ?? "");
+  if (geography && !/^no geographic restriction[.]?$/i.test(geography)) {
+    parts.push(`Region: ${truncate(geography, 60)}`);
+  }
+  return parts.join(". ");
+}
+
+function compact(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncate(value: string, maxCharacters: number): string {
+  const characters = Array.from(value);
+  if (characters.length <= maxCharacters) {
+    return value;
+  }
+
+  return characters.slice(0, maxCharacters - 1).join("").trimEnd() + "…";
+}
+
+export async function findEvents(
+  apiKey: string,
+  icp: string,
+  criteria?: ICPFormInput,
+) {
+  const now = new Date();
+  const query = buildEventSearchQuery(icp, now, criteria);
   const response = await searchTavily(apiKey, query);
 
   return {
