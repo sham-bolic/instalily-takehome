@@ -65,9 +65,9 @@ Agfa Corporation was the high-fit account. Its profile described a global manufa
 
 Surfe returned [Bart Verlinden, Head of R&D](https://www.linkedin.com/in/bart-verlinden-17a0331), and [Andy Clifton, Head of Innovation](https://www.linkedin.com/in/andyaclifton). Gemini scored them 90 and 75 respectively. Both exceeded the 70-point selection threshold.
 
-![Actual dashboard output from final run 27](images/dashboard-run-27-example.png)
+[![Actual dashboard output from final run 27](images/dashboard-run-27-example.png)](images/dashboard-run-27.png)
 
-The displayed Andy Clifton message is the actual editable output from the final run. It uses an [Agfa first-party description of its digital printing work](https://careers.agfa.com/job/Remote-Solutions-Architect/1254255201) and DuPont's [Tedlar signage application claim](https://www.dupont.com/tedlar/tedlar-signage-applications.html). The full dashboard capture is included at [`images/dashboard-run-27.png`](images/dashboard-run-27.png).
+The displayed Andy Clifton message is the actual editable output from the final run. It uses an [Agfa first-party description of its digital printing work](https://careers.agfa.com/job/Remote-Solutions-Architect/1254255201) and DuPont's [Tedlar signage application claim](https://www.dupont.com/tedlar/tedlar-signage-applications.html). Select the image to open the full dashboard capture.
 
 A previous run exposed an employer-domain mismatch between `agfa.com` and `careers.agfa.com`. The drafting stage rejected both outputs and recorded inspectable failures instead of surfacing drafts tied to an uncertain match. After the employer check was updated to recognize a verified parent/subdomain relationship, the complete single-run workflow produced both drafts. The result also exposed a remaining improvement: normalize company identities to the main corporate domain so research favors product pages rather than career pages, and describe title-based responsibility as likely rather than confirmed.
 
@@ -92,7 +92,7 @@ A production run could process every event that passes source checks, paginate c
 
 ## 5. Reliability and next steps
 
-SQLite stores structured stage inputs, outputs, timestamps, providers, profiles, and errors. One company, people search, evaluation, research call, or draft can fail without stopping unrelated work. Automated verification currently includes 63 passing backend and application tests, TypeScript checking, a successful Next.js production build, and a browser-level ICP workflow test.
+SQLite stores structured stage inputs, outputs, timestamps, providers, profiles, and errors. One company, people search, evaluation, research call, or draft can fail without stopping unrelated work. Automated verification currently includes 57 passing backend and application tests, TypeScript checking, a successful Next.js production build, and a browser-level ICP workflow test.
 
 The most valuable next data layer is an internal company and people knowledge base. Companies would be identified by a verified canonical root domain, while people would use a stable provider or LinkedIn identifier. Successful enrichment, evidence, contacts, and prior qualification decisions could then be reused across events and ICP runs instead of purchasing and recomputing the same information repeatedly. Each field should retain its source and retrieval date, with freshness rules that refresh stale company facts and employment data rather than assuming cached information never changes.
 

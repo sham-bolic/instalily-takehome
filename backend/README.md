@@ -10,7 +10,7 @@ The sourcing flow is split into independently testable stages:
 6. Decision-maker search: high-fit leads are searched in Surfe for relevant VPs, Directors, and Heads
 7. Outbound generation: Gemini qualifies each person for outreach, Tavily researches company signals, and Gemini drafts evidence-grounded messages
 
-All stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini 3.7 Flash through the Vercel AI SDK.
+All stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini through the Vercel AI SDK. The model defaults to `gemini-3.5-flash-lite` and can be overridden with `GOOGLE_GENERATIVE_AI_MODEL`.
 
 ## Run the connected pipeline
 
