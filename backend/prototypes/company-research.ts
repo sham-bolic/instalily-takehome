@@ -1,7 +1,5 @@
 import { tavily } from "@tavily/core";
 
-import { normalizeCompanyUrl } from "./company-enrichment.ts";
-
 const MAX_RESULTS = 5;
 
 export type CompanyResearchInput = {
@@ -95,12 +93,7 @@ export async function researchCompany(
 ): Promise<CompanyResearch> {
   const query = buildCompanyResearchQuery(input);
   const response = await search(apiKey, query);
-  const resolved = input.knownWebsite
-    ? {
-        url: normalizeCompanyUrl(input.knownWebsite),
-        confidence: "high" as const,
-      }
-    : resolveOfficialWebsite(input.name, response.results);
+  const resolved = resolveOfficialWebsite(input.name, response.results);
 
   return {
     researched_at: new Date().toISOString(),
@@ -119,37 +112,69 @@ export async function researchCompany(
 }
 
 export function buildCompanyResearchQuery(input: CompanyResearchInput): string {
-  return `"${input.name}" "${input.event}" official website company products services headquarters employees`;
+  return `"${input.name}" official website`;
 }
 
 function resolveOfficialWebsite(
   companyName: string,
   results: SearchResult[],
 ): { url: string; confidence: "high" | "medium" } | null {
-  const companyTokens = identityTokens(companyName);
-  const compactName = companyTokens.join("");
+  const companyIdentities = companyName
+    .split(/\b(?:d\/?b\/?a|doing business as)\b/i)
+    .map((identity) => ({
+      tokens: identityTokens(identity),
+      isSingleWord: identity.split(/[^a-z0-9]+/i).filter(Boolean).length === 1,
+    }))
+    .filter(({ tokens }) => tokens.length > 0);
   const candidates = results
     .map((result) => {
       try {
         const url = new URL(result.url);
         if (!isHttp(url) || isNonCompanyHost(url.hostname)) return null;
 
-        const host = url.hostname.replace(/^www\./, "").toLocaleLowerCase("en-US");
+        const host = url.hostname
+          .replace(/^www\./, "")
+          .toLocaleLowerCase("en-US");
         const compactHost = host.replace(/[^a-z0-9]/g, "");
+        const hostLabels = host
+          .split(".")
+          .map((label) => label.replace(/[^a-z0-9]/g, ""));
         const titleTokens = new Set(identityTokens(result.title));
-        const titleMatches = companyTokens.filter((token) => titleTokens.has(token));
-        const domainMatch =
-          compactName.length >= 4 && compactHost.includes(compactName);
-        const tokenDomainMatch = companyTokens.some(
-          (token) => token.length >= 4 && compactHost.includes(token),
+        const contentTokens = new Set(identityTokens(result.content));
+        const isHomepage = url.pathname === "/" || url.pathname === "";
+        const identityMatches = companyIdentities.map(
+          ({ tokens: companyTokens, isSingleWord }) => {
+            const compactName = companyTokens.join("");
+            const exactHostLabelMatch = hostLabels.includes(compactName);
+            const domainMatch =
+              compactName.length >= 4 && compactHost.includes(compactName);
+            const tokenDomainMatch = companyTokens.some(
+              (token) => token.length >= 4 && compactHost.includes(token),
+            );
+            const strongTitleMatch = companyTokens.every((token) =>
+              titleTokens.has(token),
+            );
+            const strongContentMatch = companyTokens.every((token) =>
+              contentTokens.has(token),
+            );
+            const matched = isSingleWord
+              ? exactHostLabelMatch
+              : domainMatch ||
+                (tokenDomainMatch && strongTitleMatch) ||
+                (isHomepage && strongTitleMatch && strongContentMatch);
+            return {
+              matched,
+              highConfidence: domainMatch || exactHostLabelMatch,
+            };
+          },
         );
-        const strongTitleMatch =
-          companyTokens.length > 0 && titleMatches.length === companyTokens.length;
-
-        if (!domainMatch && !(tokenDomainMatch && strongTitleMatch)) return null;
+        const matchedIdentity = identityMatches.find(({ matched }) => matched);
+        if (!matchedIdentity) return null;
         return {
           url: `${url.protocol}//${url.host}/`,
-          confidence: domainMatch ? ("high" as const) : ("medium" as const),
+          confidence: matchedIdentity.highConfidence
+            ? ("high" as const)
+            : ("medium" as const),
           score: result.score,
         };
       } catch {

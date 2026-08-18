@@ -278,6 +278,145 @@ test("researches every sourced company before Apollo and isolates provider failu
   }
 });
 
+test("uses name-only Apollo lookup when Tavily cannot verify a website", async () => {
+  const database = new PipelineDatabase(":memory:");
+  const enrichmentAttempts: Array<{ name?: string; website?: string | null }> = [];
+
+  try {
+    const result = await runPipeline(
+      database,
+      { icp: "position sensors" },
+      {
+        findEvents: async () =>
+          discovery([
+            event("Sensor Expo", 0.9, "https://events.example/sensors"),
+          ]),
+        findCompanies: async (eventName) =>
+          sourcing(eventName, [
+            company("Everight Position", "https://asp.events/client"),
+          ]),
+        researchCompany: async (input) => ({
+          ...research(input),
+          company_url: null,
+          identity_confidence: "unresolved",
+        }),
+        enrichCompany: async (input) => {
+          enrichmentAttempts.push(input);
+          return {
+            ...enrichment("https://sensorguys.com/"),
+            provider_response: {
+              organization: {
+                name: "Everight Position",
+                website_url: "https://sensorguys.com/",
+              },
+            },
+          };
+        },
+        qualifyCompany: qualifier(),
+      },
+    );
+
+    assert.deepEqual(enrichmentAttempts, [
+      { name: "Everight Position", website: null },
+    ]);
+    assert.equal(result.enrichedCompanies, 1);
+    assert.equal(
+      database.listCompanyProfiles(result.runId)[0]?.companyUrl,
+      "https://sensorguys.com/",
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("accepts a shortened Apollo name when its domain confirms Tavily's website", async () => {
+  const database = new PipelineDatabase(":memory:");
+
+  try {
+    const result = await runPipeline(
+      database,
+      { icp: "defense technology" },
+      {
+        findEvents: async () =>
+          discovery([
+            event("Defense Expo", 0.9, "https://events.example/defense"),
+          ]),
+        findCompanies: async (eventName) =>
+          sourcing(eventName, [company("Vannevar Labs", null)]),
+        researchCompany: async (input) => ({
+          ...research(input),
+          company_url: "https://vannevarlabs.com/",
+        }),
+        enrichCompany: async (input) => ({
+          ...enrichment(input.website ?? "https://vannevarlabs.com/"),
+          provider_response: {
+            organization: {
+              name: "Vannevar",
+              primary_domain: "vannevarlabs.com",
+            },
+          },
+        }),
+        qualifyCompany: qualifier(),
+      },
+    );
+
+    assert.equal(result.enrichedCompanies, 1);
+    assert.equal(result.skippedCompanies, 0);
+    assert.equal(
+      database.listCompanyProfiles(result.runId)[0]?.companyUrl,
+      "https://vannevarlabs.com/",
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("rejects an Apollo organization whose name conflicts with the candidate", async () => {
+  const database = new PipelineDatabase(":memory:");
+  let qualificationCalls = 0;
+
+  try {
+    const result = await runPipeline(
+      database,
+      { icp: "defense technology" },
+      {
+        findEvents: async () =>
+          discovery([
+            event("Defense Expo", 0.9, "https://events.example/defense"),
+          ]),
+        findCompanies: async (eventName) =>
+          sourcing(eventName, [
+            company("Vannevar Labs", "https://asp.events/client"),
+          ]),
+        researchCompany: async (input) => ({
+          ...research(input),
+          company_url: "https://vannevarlabs.com/",
+        }),
+        enrichCompany: async (input) => ({
+          ...enrichment(input.website ?? "https://vannevarlabs.com/"),
+          provider_response: {
+            organization: {
+              name: "ASP Events",
+              website_url: "https://asp.events/client",
+            },
+          },
+        }),
+        qualifyCompany: qualifier(async () => {
+          qualificationCalls += 1;
+          return qualification();
+        }),
+      },
+    );
+
+    assert.equal(result.enrichedCompanies, 0);
+    assert.equal(result.skippedCompanies, 1);
+    assert.equal(qualificationCalls, 0);
+    assert.deepEqual(database.listCompanyProfiles(result.runId), []);
+  } finally {
+    database.close();
+  }
+});
+
 test("reuses Apollo data and records where the cached artifact came from", async () => {
   const database = new PipelineDatabase(":memory:");
 

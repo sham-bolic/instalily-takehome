@@ -202,7 +202,7 @@ async function enrichOneCompany(
     // Apollo remains a fallback when public-web research fails.
   }
 
-  const researchedWebsite = companyResearch?.company_url ?? company.company_url;
+  const researchedWebsite = companyResearch?.company_url ?? null;
   const input = { name: company.name, website: researchedWebsite };
   const knownDomain = researchedWebsite ? extractDomain(researchedWebsite) : null;
   const cached = knownDomain ? run.cachedEnrichment(knownDomain) : null;
@@ -229,12 +229,14 @@ async function enrichOneCompany(
   }
 
   const organization = organizationFrom(providerOutput);
+  const researchedCompany = { ...company, company_url: researchedWebsite };
   const apolloMatched =
-    organization !== null && isAcceptableMatch({ ...company, company_url: researchedWebsite }, organization);
-  const companyUrl = researchedWebsite
+    organization !== null && isAcceptableMatch(researchedCompany, organization);
+  const apolloConflicted = organization !== null && !apolloMatched;
+  const companyUrl = researchedWebsite && !apolloConflicted
     ? normalizeCompanyUrl(researchedWebsite)
     : apolloMatched
-      ? resolvedCompanyUrl(company, organization)
+      ? resolvedCompanyUrl(researchedCompany, organization)
       : null;
   const output = companyUrl
     ? {
@@ -315,9 +317,19 @@ function isAcceptableMatch(
   company: Company,
   organization: ApolloOrganization,
 ): boolean {
-  if (company.company_url) return true;
+  const apolloWebsite = organizationWebsite(organization);
+  if (
+    company.company_url &&
+    apolloWebsite &&
+    extractDomain(company.company_url) === extractDomain(apolloWebsite)
+  ) {
+    return true;
+  }
+
   const expected = canonicalCompanyName(company.name);
-  return expected !== "" && expected === canonicalCompanyName(organization.name);
+  const actual = canonicalCompanyName(organization.name);
+  if (actual === "") return company.company_url !== null;
+  return expected !== "" && expected === actual;
 }
 
 function organizationWebsite(organization: ApolloOrganization): string | null {
