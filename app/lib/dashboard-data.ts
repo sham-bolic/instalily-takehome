@@ -66,6 +66,7 @@ export function toPipelineInventory(
   const sourcedEventNames = new Set<string>();
   const eventsByKey = new Map<string, EventView>();
   const companiesByKey = new Map<string, SourcedCompanyView>();
+  const researchedWebsiteByCompany = new Map<string, string | null>();
   const enrichmentByCompany = new Map<
     string,
     Pick<SourcedCompanyView, "enrichmentStatus" | "enrichmentDetail">
@@ -98,6 +99,18 @@ export function toPipelineInventory(
           });
         }
       }
+    }
+
+    if (
+      artifact.stage === "company_research" &&
+      artifact.status === "completed"
+    ) {
+      const input = objectValue(artifact.input);
+      const company = objectValue(input.company);
+      const name = text(company.name);
+      if (!name) continue;
+      const key = companyKey(text(input.event) ?? "Event not recorded", name);
+      researchedWebsiteByCompany.set(key, safeHttpUrl(output.company_url));
     }
 
     if (artifact.stage === "company_enrichment") {
@@ -164,6 +177,9 @@ export function toPipelineInventory(
   );
   const companies = [...companiesByKey.values()].map((company) => ({
     ...company,
+    ...(researchedWebsiteByCompany.has(company.key)
+      ? { companyUrl: researchedWebsiteByCompany.get(company.key) ?? null }
+      : {}),
     ...(enrichmentByCompany.get(company.key) ??
       (enrichedProfileKeys.has(company.key)
         ? { enrichmentStatus: "enriched" as const, enrichmentDetail: null }

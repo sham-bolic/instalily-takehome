@@ -75,6 +75,13 @@ test("switching ICPs and opening the ICP builder modal", { timeout: 30_000 }, as
         await page.getByText("No company directory found", { exact: true }).isVisible(),
         true,
       );
+
+      await page.locator(`a[href="/runs/${runId}?tab=companies#results"]`).click();
+      const companyWebsite = page.getByRole("link", { name: "Check website" });
+      assert.equal(
+        await companyWebsite.getAttribute("href"),
+        "https://official-company.example/",
+      );
     } finally {
       await browser.close();
     }
@@ -150,7 +157,33 @@ function createEventSelectionRun(database, icpId) {
         name: "Previously used expo",
         exhibitor_directory_url: "https://events.example/used/directory",
       },
-      companies: [],
+      companies: [{
+        name: "Official Company",
+        booth: "42",
+        profile_url: "https://events.example/used/exhibitors/official-company",
+        company_url: "https://website-vendor.example/client",
+        attendance_evidence: {
+          type: "official_exhibitor_directory",
+          url: "https://events.example/used/directory",
+        },
+      }],
+    },
+  });
+  database.recordStageArtifact({
+    runId,
+    stage: "company_research",
+    status: "completed",
+    provider: "tavily",
+    input: {
+      event: "Previously used expo",
+      company: {
+        name: "Official Company",
+        website: "https://website-vendor.example/client",
+      },
+    },
+    output: {
+      company_url: "https://official-company.example/",
+      identity_confidence: "high",
     },
   });
   database.completeRun(runId);

@@ -153,6 +153,75 @@ test("builds a complete inventory from sourcing and enrichment artifacts", () =>
   );
 });
 
+test("replaces an event profile redirect with the website resolved by Tavily", () => {
+  const inventory = toPipelineInventory([
+    artifact(1, "company_sourcing", {
+      event: {
+        name: "Defense Expo",
+        exhibitor_directory_url: "https://events.example/directory",
+      },
+      companies: [{
+        name: "Axon Vision",
+        booth: "12",
+        profile_url: "https://events.example/exhibitors/axon-vision",
+        company_url: "https://website-vendor.example/client",
+        attendance_evidence: {
+          type: "official_exhibitor_directory",
+          url: "https://events.example/directory",
+        },
+      }],
+    }),
+    artifact(2, "company_research", {
+      company_url: "https://axon-vision.example/",
+      identity_confidence: "high",
+    }, {
+      event: "Defense Expo",
+      company: {
+        name: "Axon Vision",
+        website: "https://website-vendor.example/client",
+      },
+    }),
+  ], []);
+
+  assert.equal(
+    inventory.companies[0]?.companyUrl,
+    "https://axon-vision.example/",
+  );
+});
+
+test("removes an event profile redirect when Tavily cannot verify a website", () => {
+  const inventory = toPipelineInventory([
+    artifact(1, "company_sourcing", {
+      event: {
+        name: "Defense Expo",
+        exhibitor_directory_url: "https://events.example/directory",
+      },
+      companies: [{
+        name: "Ambiguous Company",
+        booth: null,
+        profile_url: null,
+        company_url: "https://website-vendor.example/client",
+        attendance_evidence: {
+          type: "official_exhibitor_directory",
+          url: "https://events.example/directory",
+        },
+      }],
+    }),
+    artifact(2, "company_research", {
+      company_url: null,
+      identity_confidence: "unresolved",
+    }, {
+      event: "Defense Expo",
+      company: {
+        name: "Ambiguous Company",
+        website: "https://website-vendor.example/client",
+      },
+    }),
+  ], []);
+
+  assert.equal(inventory.companies[0]?.companyUrl, null);
+});
+
 test("keeps sourced companies visible when enrichment fails", () => {
   const failed = artifact(1, "company_enrichment", null, {
     event: "ISA Sign Expo",

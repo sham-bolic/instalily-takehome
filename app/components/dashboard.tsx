@@ -551,10 +551,10 @@ function CompanyResults({
                 <strong>{company.name}</strong>
                 {company.companyUrl ? (
                   <a href={company.companyUrl} target="_blank" rel="noreferrer">
-                    Company site ↗
+                    Check website ↗
                   </a>
                 ) : (
-                  <small>No company site sourced</small>
+                  <small>No verified website found</small>
                 )}
               </div>
               <span className="companyEvent">{company.event}</span>
