@@ -2,91 +2,118 @@
 
 _Draft for the final three-page submission_
 
-## 1. Prototype overview
+## 1. Overview and architecture
 
-I built a working lead qualification prototype for DuPont Tedlar's Graphics & Signage team. A user defines an Ideal Customer Profile (ICP), starts a run, and receives a ranked set of companies found through public industry-event data. The dashboard preserves the event, company, qualification rationale, evidence, size data when available, and the status of every pipeline step.
+I built a working lead-generation and outreach prototype for DuPont Tedlar's Graphics & Signage team. A user defines an Ideal Customer Profile (ICP), starts a run, and receives a ranked list of companies found through public industry-event data. For high-fit companies, the same run finds potential decision-makers, evaluates whether each person is genuinely relevant, and drafts evidence-grounded outreach only for worthwhile contacts. The dashboard shows the event, company, verified website, available size data, qualification rationale, people, selection reasoning, and editable messages.
 
-The DuPont demonstration ICP was grounded in DuPont's first-party product pages and brochures. It targets manufacturers and converters that can incorporate a clear protective overlaminate into durable graphic media, vehicle wraps, architectural graphics, outdoor signage, and similar products. Strong signals include coating or laminating capability, long outdoor warranties, anti-graffiti or easy-clean products, broad distribution, and recurring exposure to UV, moisture, chemicals, or heavy cleaning.
+The demonstration ICP is based on DuPont's first-party product pages and brochures. It targets manufacturers and converters that could incorporate a clear protective overlaminate into durable graphic media, vehicle wraps, architectural graphics, outdoor signage, and similar products.
 
-The central design choice is to use AI for bounded research and assessment tasks, while ordinary application code controls execution. The model does not decide stage order, retry forever, silently fill missing fields, or calculate its own unbounded score. This makes the workflow easier to inspect, test, and scale.
+```text
+Editable ICP
+  -> Discover events and extract participating companies
+  -> Resolve company identities and enrich profiles
+  -> Assess and rank company fit
+  -> Search high-fit companies for decision-makers with Surfe
+  -> Use Gemini to score each person's relevance
+  -> Research a first-party company signal
+  -> Draft, review, edit, and copy personalized outreach
+```
 
-### Technology
+AI performs bounded research, extraction, assessment, and drafting tasks. Regular application code controls stage order, validates outputs, applies thresholds, saves progress, and isolates failures. The prototype uses Next.js and TypeScript, Tavily for public-web research, Playwright for interactive event directories, Gemini for structured extraction and decisions, Apollo for company enrichment, Surfe for people search and LinkedIn URLs, and SQLite for ICPs, runs, profiles, and processing history.
 
-- Next.js 16 and React 19 dashboard
-- TypeScript pipeline and application logic
-- Tavily for public-web event discovery and company research
-- Playwright for JavaScript-rendered exhibitor directories
-- Gemini through the Vercel AI SDK for structured extraction and qualification
-- Apollo Organization Enrichment for optional company size and revenue data
-- SQLite for ICPs, runs, stage artifacts, provider results, and assembled company profiles
-- Zod schemas for structured AI output validation
+## 2. Workflow, limitations, and improvements
 
-## 2. AI agent workflow
+### 1. ICP definition
 
-1. **Create and snapshot the ICP**  
-   The dashboard collects the offering, target companies, applications, fit signals, company size, geography, exclusions, and a representative company. It formats these inputs into a reusable named ICP. Starting a run stores an immutable snapshot, so later edits cannot change a historical assessment.
+The dashboard collects the offering, target companies, applications, fit signals, size, geography, exclusions, and a representative company. Each run saves an unchanging ICP copy, so later edits cannot alter historical results.
 
-2. **Discover relevant events**  
-   Tavily searches for upcoming trade shows and expos using concise queries derived from the ICP. Results are deduplicated by URL and stored with source URLs, summaries, retrieval metadata, relevance scores, and any recognized exhibitor or participant directory. The current run threshold is `0.5`.
+**Limit and next step:** Results depend on the rubric's clarity. Add versioned positive, negative, and borderline examples, then test changes against a sales-labelled company set.
 
-3. **Source participating companies**  
-   The pipeline tries the highest-ranked event with a usable company directory and can fall back to another event if the directory fails. Playwright renders the directory, including client-side content and embedded frames. Gemini classifies the page and extracts at most ten explicitly listed companies. Application code then rejects any company name, evidence excerpt, or URL that is not present in the rendered page. The event directory is retained as attendance evidence.
+### 2. Event discovery and company extraction
 
-4. **Research and verify company identity**  
-   Each company receives one neutral Tavily search for its official website and general public information. Domain and company-name checks reject ambiguous matches, event-profile redirects, social networks, and data-broker pages. Unresolved identities are skipped instead of guessed.
+Tavily searches for upcoming events using ICP-derived terms and stores URLs, summaries, relevance scores, and recognized participant directories. Playwright renders JavaScript-based directories and embedded frames. Gemini extracts up to ten companies, but application code accepts only names, evidence, and links present on the rendered page. Events without usable company sources are skipped rather than guessed.
 
-5. **Enrich the company profile**  
-   A verified domain is sent to Apollo when credentials are available. The coordinator accepts the result only when the returned domain or normalized company name matches the sourced company. Tavily research remains usable when Apollo has no match or fails. Missing employee and revenue values remain explicitly unknown. Successful Apollo results are cached by domain and reused with a reference to the original artifact.
+**Limit and next step:** Event sources can be noisy, gated, paginated, or protected by bot checks. Add more recorded directory strategies and process every event passing source checks with bounded concurrency. The one-event and ten-company limits currently control test cost, not production capacity.
 
-6. **Assess and rank ICP fit**  
-   Gemini receives only the immutable ICP and saved company profile. It cannot browse during assessment. It returns schema-validated `high`, `medium`, or `low` values for both fit and confidence, a concise rationale, and up to five supporting facts. Missing facts lower confidence rather than automatically lowering fit. Application code ranks by fit first and confidence second.
+### 3. Company identity and enrichment
 
-7. **Review the result in the dashboard**  
-   The dashboard separates discovered events, all sourced companies, enriched profiles, and qualified companies. Users can inspect sources, verified websites, enrichment status, fit, confidence, rationale, and evidence. They can also choose another discovered event for enrichment, resume a failed run after event discovery, delete finished runs, or inspect the persisted developer trace.
+Each company receives a neutral Tavily search for its official website. Deterministic checks compare names, domains, titles, and result text while rejecting social networks, event platforms, and data brokers. Apollo can perform domain or name lookup, but its result is accepted only when the domain or normalized organization name confirms the sourced company. Successful enrichment is cached by domain. Unresolved identities remain skipped, and missing size or revenue remains unknown.
 
-## 3. Data processing, validation, and resilience
+**Limit and next step:** Smaller companies have weaker public and provider coverage, creating discoverability bias. Combine independent providers, preserve field-level sources and retrieval dates, and display conflicts rather than silently overwriting them.
 
-Every external call produces an immutable stage artifact containing its input, structured output, provider, timestamps, and error state. This gives the prototype a complete trace from ICP to final ranking and makes provider behavior debuggable without hiding it inside model prose.
+### 4. Company qualification and ranking
 
-The pipeline applies several safeguards:
+Gemini receives only the saved ICP and assembled company profile. It returns schema-validated `high`, `medium`, or `low` fit and confidence, a rationale, and supporting facts. Application code ranks by fit and then evidence confidence, not company size alone. Missing information lowers confidence instead of automatically implying low fit.
 
-- Hard bounds on search results, directory traversal, extracted companies, enrichment calls, and model retries
-- Structured Gemini outputs validated with Zod, with up to two correction retries
-- Exact-page validation for extracted exhibitor names, evidence excerpts, and links
-- Official-domain and normalized-name checks before accepting enrichment
-- Explicit `unknown`, `skipped`, and `failed` states instead of invented facts
-- Company-level failure isolation, so one provider or model failure does not stop other companies
-- Event fallback when the highest-ranked directory cannot be used
-- Resume and event-continuation flows that reuse saved discovery rather than repeating paid searches
-- SQLite persistence and domain-level Apollo caching for repeatability and lower cost
+**Limit and next step:** The model cannot recover unsourced facts and may vary on borderline cases. Improve the evidence and criterion examples first, then measure prompt and model changes against a labelled evaluation set.
 
-The prototype is a modular monolith, which keeps the demo simple while preserving clean seams between event discovery, company sourcing, research, enrichment, qualification, persistence, and presentation. Provider-specific code is isolated behind narrow functions, so a different search or company-data service can be added without changing the dashboard or ranking logic. A future production version could move the same contracts to PostgreSQL and a durable job queue for higher concurrency.
+### 5. Stakeholder identification
 
-## 4. Implementation results
+Only `high`-fit companies proceed to Surfe. The search uses the verified company domain and looks for VP, Director, or Head contacts in Product Development, Innovation, R&D, Coatings, and Protective Solutions. It returns up to ten people with title, department, seniority, employer domain, and LinkedIn URL. The dashboard distinguishes matches, zero results, provider errors, and unsearched companies.
 
-A representative persisted live Graphics & Signage run demonstrates the complete workflow:
+**Limit and next step:** A broad title match does not prove that someone should receive outreach, and provider coverage varies. Make role families configurable by ICP and compare Surfe with Sales Navigator, Clay, or another source. Enrich email only after selection to avoid unnecessary credits and personal-data handling.
+
+### 6. Contact evaluation
+
+Gemini evaluates all Surfe candidates for a company together using the ICP, company qualification rationale, title, seniority, and department. It assigns a 0-100 relevance score, confidence, and specific rationale based on whether the person's business area likely influences, evaluates, develops, or qualifies relevant products or materials. Seniority alone is explicitly insufficient.
+
+Application code verifies that Gemini returned every supplied LinkedIn URL exactly once, rejects invented or duplicate people, sorts by score, and applies a fixed threshold of 70. Only selected contacts continue. If evaluation fails, nobody at that company receives a message.
+
+**Limit and next step:** Titles remain imperfect proxies for responsibility, and 70 is a product policy rather than a calibrated conversion score. Use sales review to label candidate quality and tune the threshold.
+
+### 7. Evidence-grounded outreach
+
+For a company with selected contacts, Tavily performs one reusable search for first-party product, application, or strategy evidence. Gemini drafts a three- or four-sentence note from the person's role, company qualification, at most two validated company facts, and one claim from a versioned set of DuPont product claims. It must include a factual reason for writing, a cautious role connection, one Tedlar benefit, and a low-pressure question. It cannot invent responsibilities, pains, budgets, current materials, or results, and it cannot ask for a meeting.
+
+Application code rejects unknown evidence IDs, unknown product claims, or an employer-domain mismatch. When first-party evidence is unavailable, drafting can safely fall back to role and qualification context with lower confidence. The dashboard explains why the person and company were selected and provides an editable, copyable message. It does not send automatically.
+
+**Limit and next step:** Add sales feedback on message usefulness and track which evidence and angles lead to replies. Sending should remain a separate reviewed action with CRM, consent, and suppression-list controls.
+
+### 8. Reliability and scale
+
+SQLite stores stage inputs, structured outputs, timestamps, providers, and errors. One failed company, people search, evaluation, research call, or draft does not stop the others. Completed event discovery can be reused after failure, and another discovered event can start a downstream run without repeating discovery.
+
+**Limit and next step:** In-process execution fits an MVP, not high-volume parallel work. Production should estimate provider spend before starting, use bounded concurrency and delayed retries, support targeted stage retry, and move long work to a durable job system.
+
+## 3. Implementation results and lessons
+
+The latest saved live Graphics & Signage run completed in about 61 seconds:
 
 | Stage | Observed result |
 | --- | ---: |
-| Public event candidates discovered | 29 |
-| Event used for company sourcing | PRINTING United Expo |
-| Companies extracted from the rendered directory | 10 |
-| Company identities verified and profiles saved | 6 |
-| Companies skipped rather than ambiguously matched | 4 |
-| Completed qualification assessments | 2 |
-| Qualification calls isolated after Gemini quota failures | 4 |
+| Public event candidates discovered | 28 |
+| Candidates with a usable company source | 8 |
+| Event used for sourcing | PRINTING United Expo |
+| Companies extracted | 10 |
+| Company identities resolved and assessed | 8 |
+| Identities safely left unresolved | 2 |
+| High-fit / low-fit companies | 1 / 7 |
+| High-fit companies sent to Surfe | 1 |
+| Potential decision-makers returned | 2 |
+| Contacts selected by Gemini | 2 |
+| Personalized messages drafted | 2 |
 
-The two completed assessments were both low-fit, high-confidence results. This is a useful outcome rather than a false success: presence at a broadly relevant printing event did not by itself make those exhibitors good Tedlar prospects. The system retained the evidence and filtered them instead of promoting them based only on event attendance. The run also exposed two practical areas for the next iteration: improve event selection toward graphics-material manufacturers and make the demo less dependent on live model quota.
+Agfa Corporation was the high-fit company. Surfe returned Andy Clifton, Head of Innovation, and Bart Verlinden, Head of R&D, with LinkedIn profile URLs. A linked outreach run then evaluated both people together, researched Agfa once, and drafted two messages in about 3.5 seconds. Gemini scored Bart 85 and Andy 75, both with high confidence and above the 70-point threshold. Bart ranked higher because R&D is more directly connected to product development and material evaluation than a general innovation function.
 
-The same saved-ICP workflow was also exercised with a separate aerospace ICP. That run found 23 event candidates, sourced ten exhibitors, verified five company profiles, and returned five assessments, including two high-fit and high-confidence companies. This provides an early check that the pipeline is reusable rather than hard-coded to one market.
+Both drafts used a first-party Agfa source describing its inkjet printing technologies and industrial applications, then connected that evidence to DuPont's approved claim that Tedlar Clear Protection film protects outdoor graphics against UV exposure and fading. Each draft cited the exact company evidence and product claim it used, carried high confidence with no warnings, and remained editable rather than being sent automatically.
 
-Current automated verification passes:
+The first outreach attempt also demonstrated the safety boundary: both drafts were blocked because Surfe reported `agfa.com` while the saved company profile used `careers.agfa.com`. The run completed with two inspectable draft failures rather than sending uncertain output. After the employer check was updated to recognize a verified parent/subdomain relationship, the 3.5-second rerun produced both drafts successfully.
 
-- 48 backend and application tests covering discovery, extraction, identity resolution, caching, persistence, partial failures, qualification, ICP workflows, resume behavior, and dashboard view models
-- TypeScript type checking
-- Next.js production build
-- Browser-level dashboard test for ICP selection and the ICP builder workflow
+The live output also exposed useful precision gaps. Identity resolution retained `careers.agfa.com` instead of normalizing to Agfa's main domain, so outreach research favored career pages rather than stronger product pages. Gemini's role rationale also inferred material-selection responsibility from an R&D title more strongly than the evidence supported. These are concrete next steps: normalize domains to the appropriate company root, rank product pages above career pages, and validate that role rationales distinguish title-based likelihood from confirmed responsibility.
 
-## 5. Current status and next iteration
+The seven low-fit results were also useful. PRINTING United included apparel suppliers, software vendors, equipment distributors, and substrate manufacturers that shared event relevance but lacked the ICP's ability to incorporate a protective overlaminate. The pipeline retained those assessments rather than confusing attendance or size with product fit.
 
-The core live-data workflow is operational from the dashboard and terminal. The next iteration should rerun the Graphics & Signage ICP through the latest identity-verification logic, strengthen event ranking using manufacturer and converter signals, normalize public evidence into field-level source claims, and pin a labelled successful demo run for quota-independent presentation. These changes preserve the current principle: show a smaller set of defensible results rather than a larger set built from guesses.
+Earlier runs exposed a company identity problem: event directories often publish names without websites, while name-only provider matches can be ambiguous. Adding public-web identity verification changed the outcome from skipping all ten companies to safely resolving most of them. The lesson is to preserve evidence, expose failure, avoid guesses, and turn live edge cases into regression tests.
+
+The stage boundaries support more events, companies, and people, but the current bounds are cost controls. Higher scale requires multi-event orchestration, bounded concurrency, durable execution, and provider budgets. Automated verification currently includes 63 passing backend and application tests covering the pipeline through contact selection and drafting, plus TypeScript checking, a successful Next.js production build, and a browser-level ICP workflow test.
+
+## 4. Improvement priorities
+
+1. Improve event sources and company identity coverage.
+2. Preserve and reconcile field-level evidence from multiple providers.
+3. Normalize company domains and prioritize product evidence over career pages.
+4. Calibrate company, contact, and rationale quality with sales-labelled examples.
+5. Add reviewed CRM sending, suppression controls, and post-selection contact enrichment.
+6. Add durable execution, bounded concurrency, provider budgets, and targeted retry.
+
+The central lesson is that each downstream action depends on the previous decision. Better event evidence improves company selection; verified identity improves qualification; and careful contact evaluation prevents a polished message from reaching the wrong person.
