@@ -1,8 +1,6 @@
-# Live sourcing prototypes
+# Lead sourcing and outreach implementation
 
-> THROWAWAY PROTOTYPES. These are learning tools, not the production implementation.
-
-The sourcing flow is split into independent probes so each stage can be tested before the next one is built:
+The sourcing flow is split into independently testable stages:
 
 1. Event sourcing: ICP in, event candidates out
 2. Company sourcing: selected event in, company candidates out
