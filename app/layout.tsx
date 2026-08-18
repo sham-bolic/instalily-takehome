@@ -7,8 +7,8 @@ const bodyFont = DM_Sans({ subsets: ["latin"], variable: "--font-body" });
 const displayFont = Manrope({ subsets: ["latin"], variable: "--font-display" });
 
 export const metadata: Metadata = {
-  title: "Tedlar Lead Intelligence",
-  description: "Evidence-backed event and lead qualification for DuPont Tedlar.",
+  title: "Lead Generation and Outbound",
+  description: "Evidence-backed lead generation, qualification, and outbound sales research.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

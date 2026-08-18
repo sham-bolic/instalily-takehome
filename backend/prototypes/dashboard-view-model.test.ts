@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  toDecisionMakerCompanies,
   toLeadView,
   toPipelineInventory,
+  type LeadView,
 } from "../../app/lib/dashboard-data.ts";
 import type {
   CompanyProfile,
@@ -35,6 +37,19 @@ test("maps a persisted profile into a sales-facing lead", () => {
         rationale: "Makes durable outdoor graphics.",
         evidence: ["Sells weather-resistant films."],
       },
+      decision_makers: [
+        {
+          firstName: "Dana",
+          lastName: "Director",
+          companyName: "Example Graphics",
+          companyDomain: "graphics.example",
+          jobTitle: "Director of Product Development",
+          seniorities: ["Director"],
+          departments: ["Product Development"],
+          country: "United States",
+          linkedInUrl: "https://www.linkedin.com/in/dana-director",
+        },
+      ],
     },
   };
 
@@ -50,7 +65,62 @@ test("maps a persisted profile into a sales-facing lead", () => {
     evidence: ["Sells weather-resistant films."],
     employeeCount: 420,
     revenue: "$75M",
+    decisionMakers: [
+      {
+        name: "Dana Director",
+        title: "Director of Product Development",
+        linkedInUrl: "https://www.linkedin.com/in/dana-director",
+        companyName: "Example Graphics",
+        companyDomain: "graphics.example",
+        seniorities: ["Director"],
+        departments: ["Product Development"],
+        country: "United States",
+        outreach: null,
+        outreachStatus: null,
+        outreachExclusionReason: null,
+        relevanceScore: null,
+        relevanceConfidence: null,
+        relevanceRationale: null,
+      },
+    ],
   });
+});
+
+test("distinguishes decision-maker matches, zero results, and API errors", () => {
+  const leads = [
+    leadView("matches.example", 1),
+    leadView("empty.example", 0),
+    leadView("failed.example", 0),
+    leadView("pending.example", 0),
+  ];
+  const artifacts = [
+    { ...artifact(1, "decision_maker_search", { total: 1 }), companyDomain: "matches.example" },
+    { ...artifact(2, "decision_maker_search", { total: 0 }), companyDomain: "empty.example" },
+    {
+      ...artifact(3, "decision_maker_search", null),
+      companyDomain: "failed.example",
+      status: "failed" as const,
+      output: null,
+      error: "Surfe unavailable",
+    },
+  ];
+
+  assert.deepEqual(
+    toDecisionMakerCompanies(leads, artifacts).map(
+      ({ domain, status, error, people }) => ({
+        domain,
+        status,
+        error,
+        people: people.length,
+      }),
+    ),
+    [
+      { domain: "matches.example", status: "matches_found", error: null, people: 1 },
+      { domain: "empty.example", status: "no_matches", error: null, people: 0 },
+      { domain: "failed.example", status: "api_error", error: "Surfe unavailable", people: 0 },
+      { domain: "pending.example", status: "not_searched", error: null, people: 0 },
+    ],
+  );
 });
 
 test("builds a complete inventory from sourcing and enrichment artifacts", () => {
@@ -246,6 +316,40 @@ test("keeps sourced companies visible when enrichment fails", () => {
   assert.equal(inventory.companies[0]?.enrichmentStatus, "failed");
   assert.equal(inventory.companies[0]?.enrichmentDetail, "Provider unavailable");
 });
+
+function leadView(domain: string, people: number): LeadView {
+  return {
+    domain,
+    companyUrl: `https://${domain}`,
+    name: domain,
+    event: "Test event",
+    rank: 1,
+    fit: "high",
+    confidence: "high",
+    rationale: "Test lead",
+    evidence: [],
+    employeeCount: null,
+    revenue: null,
+    decisionMakers: people
+      ? [{
+          name: "Dana Director",
+          title: "Director of Product Development",
+          linkedInUrl: `https://linkedin.com/in/${domain}`,
+          companyName: domain,
+          companyDomain: domain,
+          seniorities: ["Director"],
+          departments: ["Product Development"],
+          country: "US",
+          outreach: null,
+          outreachStatus: null,
+          outreachExclusionReason: null,
+          relevanceScore: null,
+          relevanceConfidence: null,
+          relevanceRationale: null,
+        }]
+      : [],
+  };
+}
 
 function artifact(
   id: number,

@@ -4,6 +4,50 @@ import type {
   StageArtifact,
 } from "../../backend/prototypes/pipeline-database.ts";
 
+export type OutreachEvidenceView = {
+  id: string;
+  title: string;
+  url: string;
+  excerpt: string;
+};
+
+export type PersonalizedOutreachView = {
+  message: string;
+  whyThisPerson: string;
+  whyThisCompany: string;
+  confidence: "high" | "medium" | "low";
+  warnings: string[];
+  evidence: OutreachEvidenceView[];
+  productClaim: string;
+  productClaimSourceUrl: string;
+};
+
+export type DecisionMakerView = {
+  name: string;
+  title: string;
+  linkedInUrl: string;
+  companyName: string;
+  companyDomain: string;
+  seniorities: string[];
+  departments: string[];
+  country: string | null;
+  outreach: PersonalizedOutreachView | null;
+  outreachStatus: "selected" | "excluded" | null;
+  outreachExclusionReason: string | null;
+  relevanceScore: number | null;
+  relevanceConfidence: "high" | "medium" | "low" | null;
+  relevanceRationale: string | null;
+};
+
+export type DecisionMakerCompanyView = {
+  name: string;
+  domain: string;
+  companyUrl: string;
+  people: DecisionMakerView[];
+  status: "matches_found" | "no_matches" | "api_error" | "not_searched";
+  error: string | null;
+};
+
 export type LeadView = {
   domain: string;
   companyUrl: string;
@@ -16,6 +60,7 @@ export type LeadView = {
   evidence: string[];
   employeeCount: number | null;
   revenue: string | null;
+  decisionMakers: DecisionMakerView[];
 };
 
 export type EventView = {
@@ -218,7 +263,161 @@ export function toLeadView(profile: CompanyProfile): LeadView {
     revenue:
       text(organization.annual_revenue_printed) ??
       formatRevenue(finiteNumber(organization.annual_revenue)),
+    decisionMakers: objectArray(value.decision_makers).flatMap((person) => {
+      const firstName = text(person.firstName);
+      const lastName = text(person.lastName);
+      const title = text(person.jobTitle);
+      const linkedInUrl = safeHttpUrl(person.linkedInUrl);
+      return firstName && lastName && title && linkedInUrl
+        ? [{
+            name: `${firstName} ${lastName}`,
+            title,
+            linkedInUrl,
+            companyName: text(person.companyName) ?? text(value.name) ?? profile.domain,
+            companyDomain: text(person.companyDomain) ?? profile.domain,
+            seniorities: stringArray(person.seniorities),
+            departments: stringArray(person.departments),
+            country: text(person.country),
+            outreach: outreachForPerson(value, linkedInUrl),
+            ...outreachSelectionForPerson(value, linkedInUrl),
+          }]
+        : [];
+    }).toSorted(
+      (left, right) => (right.relevanceScore ?? -1) - (left.relevanceScore ?? -1),
+    ),
   };
+}
+
+function outreachSelectionForPerson(
+  profile: Record<string, unknown>,
+  linkedInUrl: string,
+): Pick<
+  DecisionMakerView,
+  | "outreachStatus"
+  | "outreachExclusionReason"
+  | "relevanceScore"
+  | "relevanceConfidence"
+  | "relevanceRationale"
+> {
+  const selection = objectValue(profile.outreach_selection);
+  const assessment = objectArray(selection.evaluations).find(
+    (candidate) => text(candidate.personLinkedInUrl) === linkedInUrl,
+  );
+  const confidence = text(assessment?.confidence);
+  const relevance: Pick<
+    DecisionMakerView,
+    "relevanceScore" | "relevanceConfidence" | "relevanceRationale"
+  > = {
+    relevanceScore: finiteNumber(assessment?.relevanceScore),
+    relevanceConfidence:
+      confidence === "high" || confidence === "medium" || confidence === "low"
+        ? confidence
+        : null,
+    relevanceRationale: text(assessment?.rationale),
+  };
+
+  if (stringArray(selection.selected_person_linkedin_urls).includes(linkedInUrl)) {
+    return {
+      outreachStatus: "selected",
+      outreachExclusionReason: null,
+      ...relevance,
+    };
+  }
+  const excluded = objectArray(selection.excluded).find(
+    (candidate) => text(candidate.person_linkedin_url) === linkedInUrl,
+  );
+  return excluded
+    ? {
+        outreachStatus: "excluded",
+        outreachExclusionReason:
+          text(excluded.reason) ?? "This person was not selected for outreach.",
+        ...relevance,
+      }
+    : {
+        outreachStatus: null,
+        outreachExclusionReason: null,
+        ...relevance,
+      };
+}
+
+function outreachForPerson(
+  profile: Record<string, unknown>,
+  linkedInUrl: string,
+): PersonalizedOutreachView | null {
+  const draft = objectArray(profile.outreach_drafts).find(
+    (candidate) => text(candidate.personLinkedInUrl) === linkedInUrl,
+  );
+  if (!draft) return null;
+
+  const message = text(draft.message);
+  const whyThisPerson = text(draft.whyThisPerson);
+  const whyThisCompany = text(draft.whyThisCompany);
+  const productClaim = text(draft.productClaim);
+  const productClaimSourceUrl = safeHttpUrl(draft.productClaimSourceUrl);
+  const confidence = text(draft.confidence);
+  if (
+    !message ||
+    !whyThisPerson ||
+    !whyThisCompany ||
+    !productClaim ||
+    !productClaimSourceUrl ||
+    (confidence !== "high" && confidence !== "medium" && confidence !== "low")
+  ) return null;
+
+  const usedEvidence = new Set(stringArray(draft.evidenceIds));
+  const research = objectValue(profile.outreach_research);
+  const evidence = objectArray(research.evidence).flatMap((item) => {
+    const id = text(item.id);
+    const title = text(item.title);
+    const url = safeHttpUrl(item.url);
+    const excerpt = text(item.excerpt);
+    return id && usedEvidence.has(id) && title && url && excerpt
+      ? [{ id, title, url, excerpt }]
+      : [];
+  });
+
+  return {
+    message,
+    whyThisPerson,
+    whyThisCompany,
+    confidence,
+    warnings: stringArray(draft.warnings),
+    evidence,
+    productClaim,
+    productClaimSourceUrl,
+  };
+}
+
+export function toDecisionMakerCompanies(
+  leads: LeadView[],
+  artifacts: StageArtifact[],
+): DecisionMakerCompanyView[] {
+  return leads.map((lead) => {
+    const searchArtifact = artifacts
+      .filter(
+        (artifact) =>
+          artifact.stage === "decision_maker_search" &&
+          artifact.companyDomain?.toLocaleLowerCase("en-US") ===
+            lead.domain.toLocaleLowerCase("en-US"),
+      )
+      .at(-1);
+    const status = lead.decisionMakers.length
+      ? "matches_found"
+      : !searchArtifact
+        ? "not_searched"
+        : searchArtifact.status === "failed"
+          ? "api_error"
+          : "no_matches";
+
+    return {
+      name: lead.name,
+      domain: lead.domain,
+      companyUrl: lead.companyUrl,
+      people: lead.decisionMakers,
+      status,
+      error: status === "api_error" ? searchArtifact?.error ?? "Unknown API error" : null,
+    };
+  });
 }
 
 export function selectedICPIdFromRun(run: Run | null): number | null {

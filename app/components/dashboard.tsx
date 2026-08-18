@@ -2,6 +2,7 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 
 import type {
+  CompanyProfile,
   Run,
   SavedICP,
   StageArtifact,
@@ -9,8 +10,10 @@ import type {
 import { getDatabase } from "../lib/database.ts";
 import {
   selectedICPIdFromRun,
+  toDecisionMakerCompanies,
   toLeadView,
   toPipelineInventory,
+  type DecisionMakerCompanyView,
   type EventView,
   type LeadView,
   type SourcedCompanyView,
@@ -18,6 +21,7 @@ import {
 import { DeleteRunButton } from "./delete-run-button.tsx";
 import { ICPBuilder } from "./icp-builder.tsx";
 import { ICPSelector } from "./icp-selector.tsx";
+import { OutreachMessage } from "./outreach-message.tsx";
 import { RefreshWhileRunning } from "./refresh-while-running.tsx";
 
 const pipelineStages = [
@@ -25,6 +29,10 @@ const pipelineStages = [
   ["company_sourcing", "Source companies"],
   ["company_enrichment", "Enrich profiles"],
   ["company_qualification", "Qualify leads"],
+  ["decision_maker_search", "Find decision-makers"],
+  ["outreach_candidate_evaluation", "Evaluate candidate relevance"],
+  ["outreach_research", "Research outreach signals"],
+  ["outreach_drafting", "Draft personalized messages"],
 ] as const;
 
 type DashboardProps = {
@@ -35,7 +43,7 @@ type DashboardProps = {
   error?: string;
 };
 
-type DashboardTab = "events" | "companies" | "enriched" | "qualified";
+type DashboardTab = "events" | "companies" | "enriched" | "qualified" | "people";
 
 export function Dashboard({
   selectedRunId,
@@ -58,8 +66,24 @@ export function Dashboard({
     : [];
   const leads = profiles.map(toLeadView).sort(compareLeads);
   const inventory = toPipelineInventory(artifacts, profiles);
-  const qualifiedLeads = leads.filter((lead) => lead.fit !== null);
-  const activeTab = dashboardTab(selectedTab);
+  const qualifiedLeads = leads.filter((lead) => lead.fit === "high");
+  const decisionMakersFrom = selectedRun
+    ? finitePositiveInteger(
+        objectValue(selectedRun.rootInput).decision_makers_from_run_id,
+      )
+    : null;
+  const outreachFrom = selectedRun
+    ? finitePositiveInteger(objectValue(selectedRun.rootInput).outreach_from_run_id)
+    : null;
+  const isDecisionMakerRun = decisionMakersFrom !== null;
+  const isOutreachRun = outreachFrom !== null;
+  const isPeopleRun = isDecisionMakerRun || isOutreachRun;
+  const decisionMakers = qualifiedLeads.flatMap((lead) => lead.decisionMakers);
+  const decisionMakerCompanies = toDecisionMakerCompanies(
+    qualifiedLeads,
+    artifacts,
+  );
+  const activeTab = dashboardTab(selectedTab, isPeopleRun);
   const icps = database.listICPs();
   const selectedICPId =
     requestedICPId ??
@@ -74,6 +98,7 @@ export function Dashboard({
     <>
       <RefreshWhileRunning active={active} />
       <header className="topbar">
+        <strong className="appTitle">Lead Generation and Outbound</strong>
         <div className="topActions">
           <span className="liveDot">
             <i /> Pipeline connected
@@ -115,27 +140,76 @@ export function Dashboard({
         {showICPBuilder ? <ICPBuilder error={error} /> : null}
 
         <section className="metricGrid" aria-label="Selected run data">
-          <Metric
-            label="Events"
-            value={inventory.events.length}
-            detail="discovered"
-          />
-          <Metric
-            label="Companies"
-            value={inventory.companies.length}
-            detail="sourced from events"
-          />
-          <Metric
-            label="Enriched"
-            value={leads.length}
-            detail="profiles available"
-          />
-          <Metric
-            label="Qualified"
-            value={qualifiedLeads.length}
-            detail="assessed for fit"
-            accent
-          />
+          {isOutreachRun ? (
+            <>
+              <Metric
+                label="Companies researched"
+                value={artifacts.filter(
+                  (artifact) => artifact.stage === "outreach_research",
+                ).length}
+                detail="first-party signal searches"
+              />
+              <Metric
+                label="People selected"
+                value={artifacts.filter(
+                  (artifact) => artifact.stage === "outreach_drafting",
+                ).length}
+                detail="relevant contacts drafted"
+              />
+              <Metric
+                label="Messages drafted"
+                value={decisionMakers.filter((person) => person.outreach).length}
+                detail="ready to review and copy"
+                accent
+              />
+              <Metric
+                label="Draft failures"
+                value={artifacts.filter(
+                  (artifact) =>
+                    artifact.stage === "outreach_drafting" &&
+                    artifact.status === "failed",
+                ).length}
+                detail="isolated per person"
+              />
+            </>
+          ) : isDecisionMakerRun ? (
+            <>
+              <Metric
+                label="Qualified leads"
+                value={qualifiedLeads.length}
+                detail="imported from the source run"
+              />
+              <Metric
+                label="Companies searched"
+                value={artifacts.filter(
+                  (artifact) => artifact.stage === "decision_maker_search",
+                ).length}
+                detail="sent to Surfe"
+              />
+              <Metric
+                label="People found"
+                value={decisionMakers.length}
+                detail="returned by Surfe"
+                accent
+              />
+              <Metric
+                label="API failures"
+                value={artifacts.filter(
+                  (artifact) =>
+                    artifact.stage === "decision_maker_search" &&
+                    artifact.status === "failed",
+                ).length}
+                detail="isolated per company"
+              />
+            </>
+          ) : (
+            <>
+              <Metric label="Events" value={inventory.events.length} detail="discovered" />
+              <Metric label="Companies" value={inventory.companies.length} detail="sourced from events" />
+              <Metric label="Enriched" value={leads.length} detail="profiles available" />
+              <Metric label="Qualified" value={qualifiedLeads.length} detail="assessed for fit" accent />
+            </>
+          )}
         </section>
 
         <div className="workspace">
@@ -143,7 +217,11 @@ export function Dashboard({
           <div className="mainColumn">
             {selectedRun ? (
               <>
-                <RunOverview run={selectedRun} artifacts={artifacts} />
+                <RunOverview
+                  run={selectedRun}
+                  artifacts={artifacts}
+                  profiles={profiles}
+                />
                 <ResultTabs
                   runId={selectedRun.id}
                   activeTab={activeTab}
@@ -151,6 +229,9 @@ export function Dashboard({
                   companies={inventory.companies}
                   enrichedLeads={leads}
                   qualifiedLeads={qualifiedLeads}
+                  decisionMakerCompanies={decisionMakerCompanies}
+                  isPeopleRun={isPeopleRun}
+                  isOutreachRun={isOutreachRun}
                   running={active}
                 />
                 <ArtifactDetails artifacts={artifacts} />
@@ -287,18 +368,52 @@ function RunHistory({
 function RunOverview({
   run,
   artifacts,
+  profiles,
 }: {
   run: Run;
   artifacts: StageArtifact[];
+  profiles: CompanyProfile[];
 }) {
   const input = objectValue(run.rootInput);
   const resumedFrom = finitePositiveInteger(input.resumed_from_run_id);
+  const decisionMakersFrom = finitePositiveInteger(
+    input.decision_makers_from_run_id,
+  );
+  const outreachFrom = finitePositiveInteger(input.outreach_from_run_id);
   const resumable =
     run.status === "failed" &&
     artifacts.some(
       (artifact) =>
         artifact.stage === "event_sourcing" && artifact.status === "completed",
     );
+  const canSearchDecisionMakers =
+    run.status === "completed" &&
+    decisionMakersFrom === null &&
+    outreachFrom === null &&
+    profiles.some((profile) => {
+      const value = objectValue(profile.profile);
+      return objectValue(value.qualification).fit === "high";
+    });
+  const canGenerateOutreach =
+    run.status === "completed" &&
+    decisionMakersFrom !== null &&
+    profiles.some((profile) => {
+      const makers = objectValue(profile.profile).decision_makers;
+      return Array.isArray(makers) && makers.length > 0;
+    });
+  const displayedStages = outreachFrom
+    ? pipelineStages.slice(-2)
+    : decisionMakersFrom
+      ? pipelineStages.slice(4, 5)
+      : pipelineStages.slice(0, 5);
+  const activeStageIndex =
+    run.status === "running"
+      ? displayedStages.findIndex(([stage]) =>
+          !artifacts.some(
+            (artifact) => artifact.stage === stage && artifact.status === "completed",
+          ),
+        )
+      : -1;
 
   return (
     <section className="panel runOverview">
@@ -315,6 +430,24 @@ function RunOverview({
                 <Link href={`/runs/${resumedFrom}`}>run #{resumedFrom}</Link>
               </>
             ) : null}
+            {decisionMakersFrom ? (
+              <>
+                {" "}
+                · Qualified leads from{" "}
+                <Link href={`/runs/${decisionMakersFrom}?tab=qualified`}>
+                  run #{decisionMakersFrom}
+                </Link>
+              </>
+            ) : null}
+            {outreachFrom ? (
+              <>
+                {" "}
+                · People from{" "}
+                <Link href={`/runs/${outreachFrom}?tab=people`}>
+                  run #{outreachFrom}
+                </Link>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="runActions">
@@ -327,11 +460,49 @@ function RunOverview({
               </button>
             </form>
           ) : null}
+          {canGenerateOutreach ? (
+            <form action="/api/runs" method="post">
+              <input name="outreachRunId" type="hidden" value={run.id} />
+              <button className="primaryButton" type="submit">
+                Generate outreach
+              </button>
+            </form>
+          ) : null}
+          {canSearchDecisionMakers ? (
+            <form action="/api/runs" method="post">
+              <input
+                name="decisionMakerRunId"
+                type="hidden"
+                value={run.id}
+              />
+              <button className="secondaryButton" type="submit">
+                Find decision-makers
+              </button>
+            </form>
+          ) : null}
           {run.status !== "running" ? <DeleteRunButton runId={run.id} /> : null}
         </div>
       </div>
+      {run.status === "running" ? (
+        <div
+          className="runProgress"
+          role="status"
+          aria-label="Pipeline progress"
+          aria-live="polite"
+        >
+          <span className="runProgressSpinner" aria-hidden="true" />
+          <div>
+            <strong>Pipeline is working</strong>
+            <span>
+              {displayedStages[activeStageIndex]?.[1] ?? "Processing results"} is
+              in progress. New results appear automatically.
+            </span>
+          </div>
+          <small>Checking every 2 seconds</small>
+        </div>
+      ) : null}
       <div className="stageRail">
-        {pipelineStages.map(([key, label], index) => {
+        {displayedStages.map(([key, label], index) => {
           const stageArtifacts = artifacts.filter(
             (artifact) => artifact.stage === key,
           );
@@ -341,6 +512,7 @@ function RunOverview({
           const complete = stageArtifacts.some(
             (artifact) => artifact.status === "completed",
           );
+          const active = index === activeStageIndex;
           const state =
             hasFailure && !complete
               ? "failed"
@@ -350,11 +522,13 @@ function RunOverview({
                   ? "pending"
                   : "idle";
           return (
-            <div className={`stage ${state}`} key={key}>
-              <span>{complete ? "✓" : hasFailure ? "!" : index + 1}</span>
+            <div className={`stage ${state} ${active ? "active" : ""}`} key={key}>
+              <span>{active ? "…" : complete ? "✓" : hasFailure ? "!" : index + 1}</span>
               <div>
                 <strong>{label}</strong>
-                <small>{stageSummary(key, stageArtifacts, run.status)}</small>
+                <small>
+                  {stageSummary(key, stageArtifacts, run.status, active)}
+                </small>
               </div>
             </div>
           );
@@ -377,6 +551,9 @@ function ResultTabs({
   companies,
   enrichedLeads,
   qualifiedLeads,
+  decisionMakerCompanies,
+  isPeopleRun,
+  isOutreachRun,
   running,
 }: {
   runId: number;
@@ -385,14 +562,29 @@ function ResultTabs({
   companies: SourcedCompanyView[];
   enrichedLeads: LeadView[];
   qualifiedLeads: LeadView[];
+  decisionMakerCompanies: DecisionMakerCompanyView[];
+  isPeopleRun: boolean;
+  isOutreachRun: boolean;
   running: boolean;
 }) {
-  const tabs: Array<[DashboardTab, string, number]> = [
-    ["events", "Events", events.length],
-    ["companies", "Companies", companies.length],
-    ["enriched", "Enriched companies", enrichedLeads.length],
-    ["qualified", "Qualified companies", qualifiedLeads.length],
-  ];
+  const tabs: Array<[DashboardTab, string, number]> = isPeopleRun
+    ? [
+        [
+          "people",
+          "People found",
+          decisionMakerCompanies.reduce(
+            (count, company) => count + company.people.length,
+            0,
+          ),
+        ],
+        ["qualified", "Qualified companies", qualifiedLeads.length],
+      ]
+    : [
+        ["events", "Events", events.length],
+        ["companies", "Companies", companies.length],
+        ["enriched", "Enriched companies", enrichedLeads.length],
+        ["qualified", "Qualified companies", qualifiedLeads.length],
+      ];
 
   return (
     <section className="resultsSection">
@@ -409,7 +601,13 @@ function ResultTabs({
         ))}
       </nav>
       <div id="results">
-        {activeTab === "events" ? (
+        {activeTab === "people" ? (
+          <PeopleResults
+            companies={decisionMakerCompanies}
+            running={running}
+            showOutreach={isOutreachRun}
+          />
+        ) : activeTab === "events" ? (
           <EventResults runId={runId} events={events} running={running} />
         ) : activeTab === "companies" ? (
           <CompanyResults companies={companies} running={running} />
@@ -637,6 +835,149 @@ function LeadResults({
   );
 }
 
+function PeopleResults({
+  companies,
+  running,
+  showOutreach,
+}: {
+  companies: DecisionMakerCompanyView[];
+  running: boolean;
+  showOutreach: boolean;
+}) {
+  const peopleFound = companies.reduce(
+    (count, company) => count + company.people.length,
+    0,
+  );
+  const initiallyOpenDomain = companies.find(
+    (company) => company.status === "matches_found",
+  )?.domain;
+
+  return (
+    <>
+      <ResultsHeading
+        eyebrow={showOutreach ? "Personalized outbound" : "Surfe people search"}
+        title={showOutreach ? "Outreach drafts by company" : "Decision-maker search by company"}
+        description={showOutreach
+          ? "Review the evidence-grounded message for each selected person, edit it, and copy it when ready."
+          : "Each qualified company shows whether Surfe returned matching people, returned no matches, encountered an API error, or has not been searched yet."}
+        count={`${peopleFound} people · ${companies.length} companies`}
+      />
+      {companies.length ? (
+        <div className="decisionMakerGroups">
+          {companies.map((company) => (
+            <details
+              className={`panel decisionMakerGroup ${company.status}`}
+              key={company.domain}
+              open={company.domain === initiallyOpenDomain}
+            >
+              <summary>
+                <span className="companyDisclosure" aria-hidden="true">›</span>
+                <span className="decisionMakerCompanyIdentity">
+                  <strong>{company.name}</strong>
+                  <small>{company.domain}</small>
+                </span>
+                <DecisionMakerSearchBadge company={company} />
+              </summary>
+              {company.status === "no_matches" ? null : (
+                <div className="decisionMakerGroupBody">
+                  <a
+                    className="companyWebsiteLink"
+                    href={company.companyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Company website ↗
+                  </a>
+                  {company.status === "api_error" ? (
+                  <div className="searchOutcome apiError">
+                    <strong>Surfe search failed</strong>
+                    <span>{company.error}</span>
+                  </div>
+                  ) : company.status === "not_searched" ? (
+                  <div className="searchOutcome notSearched">
+                    <strong>{running ? "Waiting to be searched" : "Search not recorded"}</strong>
+                    <span>No completed or failed Surfe request was found for this company.</span>
+                  </div>
+                ) : (
+                  <div className="companyPeopleTable">
+                    <div className="companyPersonHeader" aria-hidden="true">
+                      <span>Person</span>
+                      <span>Current role</span>
+                      <span>{showOutreach ? "Relevance" : "Search match"}</span>
+                      <span>Location</span>
+                    </div>
+                    {company.people.map((person) => (
+                      <article className="companyPersonRow" key={person.linkedInUrl}>
+                        <div className="personIdentity">
+                          <strong>{person.name}</strong>
+                          <a href={person.linkedInUrl} target="_blank" rel="noreferrer">
+                            LinkedIn profile ↗
+                          </a>
+                        </div>
+                        <span className="personRole">{person.title}</span>
+                        <div className="personMatches">
+                          {showOutreach && person.relevanceScore !== null ? (
+                            <span>{person.relevanceScore}/100 · {person.relevanceConfidence ?? "unrated"}</span>
+                          ) : (
+                            [...person.seniorities, ...person.departments].map((match) => (
+                              <span key={match}>{match}</span>
+                            ))
+                          )}
+                        </div>
+                        <span>{formatCountry(person.country)}</span>
+                        {showOutreach ? (
+                          person.outreach ? (
+                            <OutreachMessage
+                              personName={person.name}
+                              outreach={person.outreach}
+                            />
+                          ) : person.outreachStatus === "excluded" ? (
+                            <div className="draftExcluded">
+                              <strong>Not selected for outreach</strong>
+                              <span>{person.outreachExclusionReason}</span>
+                            </div>
+                          ) : (
+                            <div className="draftUnavailable">
+                              <strong>No message generated</strong>
+                              <span>Check the developer trace for this person's drafting error.</span>
+                            </div>
+                          )
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                  )}
+                </div>
+              )}
+            </details>
+          ))}
+        </div>
+      ) : (
+        <InventoryEmpty
+          running={running}
+          title="No qualified companies imported"
+          detail="This decision-maker run does not contain companies to search."
+        />
+      )}
+    </>
+  );
+}
+
+function DecisionMakerSearchBadge({
+  company,
+}: {
+  company: DecisionMakerCompanyView;
+}) {
+  const label = {
+    matches_found: `${company.people.length} matching ${company.people.length === 1 ? "person" : "people"}`,
+    no_matches: "0 matches",
+    api_error: "API error",
+    not_searched: "Not searched",
+  }[company.status];
+
+  return <span className={`searchStatus ${company.status}`}>{label}</span>;
+}
+
 function ResultsHeading({
   eyebrow,
   title,
@@ -670,8 +1011,16 @@ function InventoryEmpty({
   detail: string;
 }) {
   return (
-    <div className="panel emptyResults">
-      <span className="emptyIcon">⌁</span>
+    <div className={`panel emptyResults ${running ? "loading" : ""}`}>
+      {running ? (
+        <span className="runLoadingDots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+      ) : (
+        <span className="emptyIcon">⌁</span>
+      )}
       <h3>{running ? "Research is underway" : title}</h3>
       <p>{running ? "This view updates as the pipeline saves new data." : detail}</p>
     </div>
@@ -704,9 +1053,32 @@ function LeadCard({ lead }: { lead: LeadView }) {
             value={lead.employeeCount?.toLocaleString() ?? "Unknown"}
           />
           <Fact label="Revenue" value={lead.revenue ?? "Unknown"} />
-          <Fact label="Decision-maker" value="Not sourced" muted />
+          <Fact
+            label="Decision-makers"
+            value={
+              lead.decisionMakers.length
+                ? `${lead.decisionMakers.length} found`
+                : "Not sourced"
+            }
+            muted={!lead.decisionMakers.length}
+          />
           <Fact label="Outreach" value="Not drafted" muted />
         </div>
+        {lead.decisionMakers.length ? (
+          <div className="decisionMakers">
+            <p className="assessmentLabel">Key decision-makers</p>
+            <ul>
+              {lead.decisionMakers.map((person) => (
+                <li key={person.linkedInUrl}>
+                  <a href={person.linkedInUrl} target="_blank" rel="noreferrer">
+                    {person.name} ↗
+                  </a>
+                  <span>{person.title}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="assessment">
           <p className="assessmentLabel">Why this company</p>
           <p>
@@ -835,9 +1207,10 @@ function stageSummary(
   stage: string,
   artifacts: StageArtifact[],
   status: Run["status"],
+  active: boolean,
 ): string {
   if (!artifacts.length)
-    return status === "running" ? "Waiting" : "Not reached";
+    return active ? "Working" : status === "running" ? "Waiting" : "Not reached";
   if (
     artifacts.some((artifact) => artifact.status === "failed") &&
     !artifacts.some((artifact) => artifact.status === "completed")
@@ -846,9 +1219,28 @@ function stageSummary(
   const completed = artifacts.filter(
     (artifact) => artifact.status === "completed",
   ).length;
-  if (stage === "company_enrichment" || stage === "company_qualification")
-    return `${completed} processed`;
-  return "Complete";
+  if (
+    stage === "company_enrichment" ||
+    stage === "company_qualification" ||
+    stage === "decision_maker_search"
+  )
+    return `${completed} processed${active ? " · working" : ""}`;
+  return active ? "Working" : "Complete";
+}
+
+function currentPipelineStageIndex(artifacts: StageArtifact[]): number {
+  const completed = (stage: string) =>
+    artifacts.some(
+      (artifact) => artifact.stage === stage && artifact.status === "completed",
+    );
+
+  if (!completed("event_sourcing")) return 0;
+  if (!completed("company_sourcing")) return 1;
+  if (!artifacts.some((artifact) => artifact.stage === "company_qualification"))
+    return 2;
+  if (!artifacts.some((artifact) => artifact.stage === "decision_maker_search"))
+    return 3;
+  return 4;
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -857,7 +1249,13 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function dashboardTab(value: string | undefined): DashboardTab {
+function dashboardTab(
+  value: string | undefined,
+  isDecisionMakerRun: boolean,
+): DashboardTab {
+  if (isDecisionMakerRun) {
+    return value === "qualified" || value === "people" ? value : "people";
+  }
   return value === "events" ||
     value === "enriched" ||
     value === "qualified"
@@ -882,6 +1280,11 @@ function titleCase(value: string): string {
   return value
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatCountry(value: string | null): string {
+  if (!value) return "Not provided";
+  return value.length === 2 ? value.toLocaleUpperCase("en-US") : value;
 }
 
 function formatDate(value: string): string {
