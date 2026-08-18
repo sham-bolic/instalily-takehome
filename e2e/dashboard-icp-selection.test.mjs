@@ -17,6 +17,7 @@ test("switching ICPs and opening the ICP builder modal", { timeout: 30_000 }, as
   const database = new PipelineDatabase(databasePath);
   const graphicsId = createICP(database, "Graphics ICP", "graphics and signage");
   const aerospaceId = createICP(database, "Aerospace ICP", "aircraft cabin interiors");
+  const runId = createEventSelectionRun(database, graphicsId);
   database.close();
 
   const port = await availablePort();
@@ -58,6 +59,22 @@ test("switching ICPs and opening the ICP builder modal", { timeout: 30_000 }, as
       await page.keyboard.press("Escape");
       await page.waitForURL(`**/`);
       assert.equal(await dialog.count(), 0);
+
+      await page.goto(`http://127.0.0.1:${port}/runs/${runId}?tab=events`);
+      assert.equal(
+        await page.getByRole("button", { name: "Enrich again" }).isVisible(),
+        true,
+      );
+      assert.equal(
+        await page.getByRole("button", { name: "Enrich companies" }).isVisible(),
+        true,
+      );
+      const eventForms = page.locator('form[action="/api/runs"]:has(input[name="eventRunId"])');
+      assert.equal(await eventForms.count(), 2);
+      assert.equal(
+        await page.getByText("No company directory found", { exact: true }).isVisible(),
+        true,
+      );
     } finally {
       await browser.close();
     }
@@ -71,6 +88,74 @@ test("switching ICPs and opening the ICP builder modal", { timeout: 30_000 }, as
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+function createEventSelectionRun(database, icpId) {
+  const runId = database.createRun({
+    mode: "pipeline",
+    label: "Event selection fixture",
+    rootInput: {
+      icp: "durable graphics",
+      icp_id: icpId,
+      event_threshold: 0.5,
+      enrichment_limit: 10,
+    },
+  });
+  database.recordStageArtifact({
+    runId,
+    stage: "event_sourcing",
+    status: "completed",
+    input: { icp: "durable graphics", threshold: 0.5 },
+    output: {
+      events: [
+        {
+          name: "Previously used expo",
+          discovery_url: "https://events.example/used",
+          summary: "The event selected by the automatic pipeline.",
+          relevance_score: 0.9,
+          company_source: {
+            type: "exhibitor_directory",
+            url: "https://events.example/used/directory",
+          },
+        },
+        {
+          name: "Alternative expo",
+          discovery_url: "https://events.example/alternative",
+          summary: "Another event the user can select.",
+          relevance_score: 0.4,
+          company_source: {
+            type: "exhibitor_directory",
+            url: "https://events.example/alternative/directory",
+          },
+        },
+        {
+          name: "Event without directory",
+          discovery_url: "https://events.example/unavailable",
+          summary: "This event cannot be selected.",
+          relevance_score: 0.8,
+          company_source: null,
+        },
+      ],
+    },
+  });
+  database.recordStageArtifact({
+    runId,
+    stage: "company_sourcing",
+    status: "completed",
+    input: {
+      event: "Previously used expo",
+      directory_url: "https://events.example/used/directory",
+    },
+    output: {
+      event: {
+        name: "Previously used expo",
+        exhibitor_directory_url: "https://events.example/used/directory",
+      },
+      companies: [],
+    },
+  });
+  database.completeRun(runId);
+  return runId;
+}
 
 function createICP(database, name, market) {
   return database.createICP({
