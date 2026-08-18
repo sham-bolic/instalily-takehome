@@ -2,7 +2,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
-const GEMINI_MODEL = "gemini-3.7-flash";
+import { GEMINI_MODEL } from "./gemini-config.ts";
 
 const ratingSchema = z.enum(["high", "medium", "low"]);
 
