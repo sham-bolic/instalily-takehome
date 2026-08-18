@@ -2,6 +2,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
+import { companyDomainsMatch } from "./company-domain.ts";
 import type { CandidateAssessment } from "./outreach-candidate-evaluation.ts";
 import type { DecisionMaker } from "./decision-maker-search.ts";
 import { GEMINI_MODEL } from "./gemini-config.ts";
@@ -136,24 +137,11 @@ function confidenceFor(
 }
 
 function validateEmployer(person: DecisionMaker, companyDomain: string): void {
-  if (!employerMatches(person.companyDomain, companyDomain)) {
+  if (!companyDomainsMatch(person.companyDomain, companyDomain)) {
     throw new Error(
       `Cannot draft outreach because ${person.companyDomain} does not match ${companyDomain}.`,
     );
   }
-}
-
-function employerMatches(left: string, right: string): boolean {
-  return normalizeDomain(left) === normalizeDomain(right);
-}
-
-function normalizeDomain(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase("en-US")
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/\/.*$/, "");
 }
 
 function normalizeGreeting(message: string, firstName: string): string {

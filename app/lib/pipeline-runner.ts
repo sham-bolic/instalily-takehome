@@ -35,6 +35,7 @@ export function startLivePipeline(icp: SavedICP): number {
       enrichCompany: (company) => enrichCompany(keys.apollo, company),
       qualifyCompany: (input) => qualifyCompany(keys.gemini, input),
       searchDecisionMakers: (input) => searchDecisionMakers(keys.surfe, input),
+      outreach: outreachDependencies(keys),
     },
   );
   return observe(execution);
@@ -58,6 +59,7 @@ export function startLivePipelineForEvent(
       enrichCompany: (company) => enrichCompany(keys.apollo, company),
       qualifyCompany: (input) => qualifyCompany(keys.gemini, input),
       searchDecisionMakers: (input) => searchDecisionMakers(keys.surfe, input),
+      outreach: outreachDependencies(keys),
     },
   );
   return observe(execution);
@@ -85,19 +87,17 @@ export function startLiveOutreachPipeline(sourceRunId: number): number {
 }
 
 export function resumeLivePipeline(sourceRunId: number): number {
-  const tavilyApiKey = requiredKey("TAVILY_API_KEY");
-  const apolloApiKey = requiredKey("APOLLO_API_KEY");
-  const geminiApiKey = requiredKey("GOOGLE_GENERATIVE_AI_API_KEY");
-  const surfeApiKey = requiredKey("SURFE_API_KEY");
+  const keys = providerKeys();
   const execution = startResumedPipeline(getDatabase(), sourceRunId, {
     findEvents: async () => {
       throw new Error("A resumed run must reuse persisted event discovery.");
     },
     findCompanies,
-    researchCompany: (company) => researchCompany(tavilyApiKey, company),
-    enrichCompany: (company) => enrichCompany(apolloApiKey, company),
-    qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),
-    searchDecisionMakers: (input) => searchDecisionMakers(surfeApiKey, input),
+    researchCompany: (company) => researchCompany(keys.tavily, company),
+    enrichCompany: (company) => enrichCompany(keys.apollo, company),
+    qualifyCompany: (input) => qualifyCompany(keys.gemini, input),
+    searchDecisionMakers: (input) => searchDecisionMakers(keys.surfe, input),
+    outreach: outreachDependencies(keys),
   });
   return observe(execution);
 }
@@ -119,6 +119,17 @@ function providerKeys() {
     apollo: requiredKey("APOLLO_API_KEY"),
     gemini: requiredKey("GOOGLE_GENERATIVE_AI_API_KEY"),
     surfe: requiredKey("SURFE_API_KEY"),
+  };
+}
+
+function outreachDependencies(keys: ReturnType<typeof providerKeys>) {
+  return {
+    evaluate: (input: Parameters<typeof evaluateOutreachCandidates>[1]) =>
+      evaluateOutreachCandidates(keys.gemini, input),
+    research: (input: Parameters<typeof researchOutreachSignals>[1]) =>
+      researchOutreachSignals(keys.tavily, input),
+    draft: (input: Parameters<typeof draftPersonalizedOutreach>[1]) =>
+      draftPersonalizedOutreach(keys.gemini, input),
   };
 }
 

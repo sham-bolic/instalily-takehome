@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 
+import { companyDomainsMatch } from "./company-domain.ts";
 import {
   DEFAULT_OUTREACH_RELEVANCE_THRESHOLD,
   evaluateOutreachCandidates,
@@ -26,16 +27,19 @@ export type OutreachPipelineDependencies = {
   draft: (input: OutreachDraftInput) => Promise<PersonalizedOutreach>;
 };
 
-export type OutreachPipelineResult = {
-  runId: number;
-  sourceRunId: number;
-  importedCompanies: number;
+export type OutreachGenerationResult = {
   evaluatedCompanies: number;
   failedEvaluations: number;
   researchedCompanies: number;
   failedResearches: number;
   draftedMessages: number;
   failedDrafts: number;
+};
+
+export type OutreachPipelineResult = OutreachGenerationResult & {
+  runId: number;
+  sourceRunId: number;
+  importedCompanies: number;
 };
 
 export function startOutreachPipeline(
@@ -50,14 +54,10 @@ export function startOutreachPipeline(
 
   const sourceRun = database.getRun(sourceRunId);
   if (!sourceRun || sourceRun.status !== "completed") {
-    throw new Error(`Run ${sourceRunId} is not a completed decision-maker run.`);
+    throw new Error(`Run ${sourceRunId} is not a completed pipeline run.`);
   }
 
   const sourceInput = objectValue(sourceRun.rootInput);
-  if (positiveInteger(sourceInput.decision_makers_from_run_id) === null) {
-    throw new Error(`Run ${sourceRunId} is not a decision-maker run.`);
-  }
-
   const profiles = database
     .listCompanyProfiles(sourceRunId)
     .filter((profile) => decisionMakers(profile).length > 0);
@@ -125,6 +125,35 @@ async function executeOutreachPipeline(
   dependencies: OutreachPipelineDependencies,
   relevanceThreshold: number,
 ): Promise<OutreachPipelineResult> {
+  try {
+    const result = await generateOutreach(
+      run,
+      icp,
+      dependencies,
+      relevanceThreshold,
+    );
+    run.complete();
+    return {
+      runId: run.id,
+      sourceRunId,
+      importedCompanies: profiles.length,
+      ...result,
+    };
+  } catch (error) {
+    run.fail(error);
+    throw error;
+  }
+}
+
+export async function generateOutreach(
+  run: PipelineRun,
+  icp: string,
+  dependencies: OutreachPipelineDependencies,
+  relevanceThreshold = DEFAULT_OUTREACH_RELEVANCE_THRESHOLD,
+): Promise<OutreachGenerationResult> {
+  const profiles = run
+    .profiles()
+    .filter((profile) => decisionMakers(profile).length > 0);
   let evaluatedCompanies = 0;
   let failedEvaluations = 0;
   let researchedCompanies = 0;
@@ -132,166 +161,157 @@ async function executeOutreachPipeline(
   let draftedMessages = 0;
   let failedDrafts = 0;
 
-  try {
-    for (const sourceProfile of profiles) {
-      const current = run.profiles().find(
-        (profile) => profile.domain === sourceProfile.domain,
-      )!;
-      const value = objectValue(current.profile);
-      const companyName = textValue(value.name) ?? current.domain;
-      const allPeople = decisionMakers(current);
-      let assessments: CandidateAssessment[];
-      try {
-        assessments = await run.stage(
-          {
-            name: "outreach_candidate_evaluation",
-            companyDomain: current.domain,
-            provider: "google",
-            input: {
-              company_domain: current.domain,
-              candidate_linkedin_urls: allPeople.map((person) => person.linkedInUrl),
-              relevance_threshold: relevanceThreshold,
-            },
+  for (const sourceProfile of profiles) {
+    const current = run.profiles().find(
+      (profile) => profile.domain === sourceProfile.domain,
+    )!;
+    const value = objectValue(current.profile);
+    const companyName = textValue(value.name) ?? current.domain;
+    const allPeople = decisionMakers(current);
+    let assessments: CandidateAssessment[];
+    try {
+      assessments = await run.stage(
+        {
+          name: "outreach_candidate_evaluation",
+          companyDomain: current.domain,
+          provider: "google",
+          input: {
+            company_domain: current.domain,
+            candidate_linkedin_urls: allPeople.map((person) => person.linkedInUrl),
+            relevance_threshold: relevanceThreshold,
           },
-          () => dependencies.evaluate({
-            icp,
-            company: {
-              name: companyName,
-              domain: current.domain,
-              qualificationRationale: companyContext(current).qualificationRationale,
-            },
-            people: allPeople,
-          }),
-        );
-        evaluatedCompanies += 1;
-      } catch {
-        failedEvaluations += 1;
-        run.saveProfile({
-          domain: current.domain,
-          companyUrl: current.companyUrl,
-          profile: {
-            ...value,
-            outreach_selection: {
-              relevance_threshold: relevanceThreshold,
-              evaluations: [],
-              selected_person_linkedin_urls: [],
-              excluded: allPeople.map((person) => ({
-                person_linkedin_url: person.linkedInUrl,
-                reason: "Candidate relevance evaluation failed; no message was generated.",
-              })),
-              error: "Candidate relevance evaluation failed.",
-            },
-            outreach_drafts: [],
+        },
+        () => dependencies.evaluate({
+          icp,
+          company: {
+            name: companyName,
+            domain: current.domain,
+            qualificationRationale: companyContext(current).qualificationRationale,
           },
-        });
-        continue;
-      }
-
-      const selectedAssessments = assessments.filter(
-        (assessment) => assessment.relevanceScore >= relevanceThreshold,
+          people: allPeople,
+        }),
       );
-      const assessmentByUrl = new Map(
-        selectedAssessments.map((assessment) => [assessment.personLinkedInUrl, assessment]),
-      );
-      const peopleByUrl = new Map(
-        allPeople.map((person) => [person.linkedInUrl, person]),
-      );
-      const selectedPeople = selectedAssessments.map(
-        (assessment) => peopleByUrl.get(assessment.personLinkedInUrl)!,
-      );
-
-      let research: OutreachResearchResult = fallbackResearch(current.domain);
-      if (selectedPeople.length > 0) try {
-        research = await run.stage(
-          {
-            name: "outreach_research",
-            companyDomain: current.domain,
-            provider: "tavily",
-            input: {
-              company_name: companyName,
-              company_domain: current.domain,
-              icp,
-            },
-          },
-          () => dependencies.research({
-            companyName,
-            companyDomain: current.domain,
-            icp,
-          }),
-        );
-        researchedCompanies += 1;
-      } catch {
-        failedResearches += 1;
-      }
-
-      const drafts: PersonalizedOutreach[] = [];
-      const selectedUrls = new Set(
-        selectedPeople.map((person) => person.linkedInUrl),
-      );
-      for (const person of selectedPeople) {
-        try {
-          const draft = await run.stage(
-            {
-              name: "outreach_drafting",
-              companyDomain: current.domain,
-              provider: "google",
-              input: {
-                company_domain: current.domain,
-                person_linkedin_url: person.linkedInUrl,
-              },
-            },
-            () => dependencies.draft({
-              company: companyContext(current),
-              person,
-              assessment: assessmentByUrl.get(person.linkedInUrl)!,
-              research,
-            }),
-          );
-          drafts.push(draft);
-          draftedMessages += 1;
-        } catch {
-          failedDrafts += 1;
-        }
-      }
-
+      evaluatedCompanies += 1;
+    } catch {
+      failedEvaluations += 1;
       run.saveProfile({
         domain: current.domain,
         companyUrl: current.companyUrl,
         profile: {
           ...value,
-          outreach_research: research,
           outreach_selection: {
             relevance_threshold: relevanceThreshold,
-            evaluations: assessments,
-            selected_person_linkedin_urls: [...selectedUrls],
-            excluded: assessments
-              .filter((assessment) => !selectedUrls.has(assessment.personLinkedInUrl))
-              .map((assessment) => ({
-                person_linkedin_url: assessment.personLinkedInUrl,
-                reason: `Relevance score ${assessment.relevanceScore} is below the ${relevanceThreshold} threshold. ${assessment.rationale}`,
-              })),
+            evaluations: [],
+            selected_person_linkedin_urls: [],
+            excluded: allPeople.map((person) => ({
+              person_linkedin_url: person.linkedInUrl,
+              reason: "Candidate relevance evaluation failed; no message was generated.",
+            })),
+            error: "Candidate relevance evaluation failed.",
           },
-          outreach_drafts: drafts,
+          outreach_drafts: [],
         },
       });
+      continue;
     }
 
-    run.complete();
-    return {
-      runId: run.id,
-      sourceRunId,
-      importedCompanies: profiles.length,
-      evaluatedCompanies,
-      failedEvaluations,
-      researchedCompanies,
-      failedResearches,
-      draftedMessages,
-      failedDrafts,
-    };
-  } catch (error) {
-    run.fail(error);
-    throw error;
+    const selectedAssessments = assessments.filter(
+      (assessment) => assessment.relevanceScore >= relevanceThreshold,
+    );
+    const assessmentByUrl = new Map(
+      selectedAssessments.map((assessment) => [assessment.personLinkedInUrl, assessment]),
+    );
+    const peopleByUrl = new Map(
+      allPeople.map((person) => [person.linkedInUrl, person]),
+    );
+    const selectedPeople = selectedAssessments.map(
+      (assessment) => peopleByUrl.get(assessment.personLinkedInUrl)!,
+    );
+
+    let research: OutreachResearchResult = fallbackResearch(current.domain);
+    if (selectedPeople.length > 0) try {
+      research = await run.stage(
+        {
+          name: "outreach_research",
+          companyDomain: current.domain,
+          provider: "tavily",
+          input: {
+            company_name: companyName,
+            company_domain: current.domain,
+            icp,
+          },
+        },
+        () => dependencies.research({
+          companyName,
+          companyDomain: current.domain,
+          icp,
+        }),
+      );
+      researchedCompanies += 1;
+    } catch {
+      failedResearches += 1;
+    }
+
+    const drafts: PersonalizedOutreach[] = [];
+    const selectedUrls = new Set(
+      selectedPeople.map((person) => person.linkedInUrl),
+    );
+    for (const person of selectedPeople) {
+      try {
+        const draft = await run.stage(
+          {
+            name: "outreach_drafting",
+            companyDomain: current.domain,
+            provider: "google",
+            input: {
+              company_domain: current.domain,
+              person_linkedin_url: person.linkedInUrl,
+            },
+          },
+          () => dependencies.draft({
+            company: companyContext(current),
+            person,
+            assessment: assessmentByUrl.get(person.linkedInUrl)!,
+            research,
+          }),
+        );
+        drafts.push(draft);
+        draftedMessages += 1;
+      } catch {
+        failedDrafts += 1;
+      }
+    }
+
+    run.saveProfile({
+      domain: current.domain,
+      companyUrl: current.companyUrl,
+      profile: {
+        ...value,
+        outreach_research: research,
+        outreach_selection: {
+          relevance_threshold: relevanceThreshold,
+          evaluations: assessments,
+          selected_person_linkedin_urls: [...selectedUrls],
+          excluded: assessments
+            .filter((assessment) => !selectedUrls.has(assessment.personLinkedInUrl))
+            .map((assessment) => ({
+              person_linkedin_url: assessment.personLinkedInUrl,
+              reason: `Relevance score ${assessment.relevanceScore} is below the ${relevanceThreshold} threshold. ${assessment.rationale}`,
+            })),
+        },
+        outreach_drafts: drafts,
+      },
+    });
   }
+
+  return {
+    evaluatedCompanies,
+    failedEvaluations,
+    researchedCompanies,
+    failedResearches,
+    draftedMessages,
+    failedDrafts,
+  };
 }
 
 function companyContext(profile: CompanyProfile): OutreachDraftInput["company"] {
@@ -312,7 +332,9 @@ function decisionMakers(profile: CompanyProfile): DecisionMaker[] {
     objectValue(profile.profile).decision_makers,
   );
   return parsed.success
-    ? parsed.data.filter((person) => domainsMatch(person.companyDomain, profile.domain))
+    ? parsed.data.filter((person) =>
+        companyDomainsMatch(person.companyDomain, profile.domain),
+      )
     : [];
 }
 
@@ -327,19 +349,6 @@ function fallbackResearch(companyDomain: string): OutreachResearchResult {
       "Company signal research failed; this draft uses role and qualification context only.",
     ],
   };
-}
-
-function domainsMatch(left: string, right: string): boolean {
-  return normalizeDomain(left) === normalizeDomain(right);
-}
-
-function normalizeDomain(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase("en-US")
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/\/.*$/, "");
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

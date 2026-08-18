@@ -130,6 +130,8 @@ test("researches every sourced company before Apollo and isolates provider failu
   }> = [];
   const enrichmentAttempts: Array<{ name?: string; website?: string | null }> = [];
   const decisionMakerSearches: Array<{ companyName: string; domain: string }> = [];
+  const outreachEvaluations: string[][] = [];
+  const outreachDrafts: string[] = [];
   const companies = [
     company("Missing URL", null),
     ...Array.from({ length: 7 }, (_, index) =>
@@ -213,6 +215,43 @@ test("researches every sourced company before Apollo and isolates provider failu
             total: 1,
           };
         },
+        outreach: {
+          evaluate: async (input) => {
+            outreachEvaluations.push(
+              input.people.map((person) => person.linkedInUrl),
+            );
+            return input.people.map((person) => ({
+              personLinkedInUrl: person.linkedInUrl,
+              relevanceScore: 88,
+              confidence: "high" as const,
+              rationale: "This product development leader is relevant.",
+            }));
+          },
+          research: async (input) => ({
+            researched_at: "2026-08-17T00:00:00.000Z",
+            query: "test query",
+            request_id: "outreach-research",
+            company_domain: input.companyDomain,
+            evidence: [],
+            warnings: [],
+          }),
+          draft: async (input) => {
+            outreachDrafts.push(input.person.linkedInUrl);
+            return {
+              personLinkedInUrl: input.person.linkedInUrl,
+              message: "Personalized message",
+              whyThisPerson: "Relevant role",
+              whyThisCompany: "Qualified company",
+              evidenceIds: [],
+              productClaimId: "tedlar_uv_fading" as const,
+              productClaim: "Tedlar protects graphics from UV exposure and fading.",
+              productClaimSourceUrl: "https://www.dupont.com/tedlar/tedlar-signage-applications.html",
+              confidence: "high" as const,
+              warnings: [],
+              draftedAt: "2026-08-17T00:00:01.000Z",
+            };
+          },
+        },
       },
     );
 
@@ -235,6 +274,12 @@ test("researches every sourced company before Apollo and isolates provider failu
       searchedQualifiedLeads: 1,
       failedDecisionMakerSearches: 0,
       decisionMakersFound: 1,
+      evaluatedCompanies: 1,
+      failedEvaluations: 0,
+      researchedCompanies: 1,
+      failedResearches: 0,
+      draftedMessages: 1,
+      failedDrafts: 0,
       rankedCompanies: [
         {
           rank: 1,
@@ -269,13 +314,26 @@ test("researches every sourced company before Apollo and isolates provider failu
     assert.deepEqual(decisionMakerSearches, [
       { companyName: "Company 1", domain: "company-1.example" },
     ]);
+    assert.deepEqual(outreachEvaluations, [[
+      "https://www.linkedin.com/in/dana-director",
+    ]]);
+    assert.deepEqual(outreachDrafts, [
+      "https://www.linkedin.com/in/dana-director",
+    ]);
+    const companyOne = database.getCompanyProfile(
+      result.runId,
+      "company-1.example",
+    )?.profile as {
+      decision_makers?: Array<{ firstName: string }>;
+      outreach_drafts?: Array<{ personLinkedInUrl: string }>;
+    };
     assert.deepEqual(
-      (
-        database.getCompanyProfile(result.runId, "company-1.example")?.profile as {
-          decision_makers?: Array<{ firstName: string }>;
-        }
-      ).decision_makers?.map((person) => person.firstName),
+      companyOne.decision_makers?.map((person) => person.firstName),
       ["Dana"],
+    );
+    assert.deepEqual(
+      companyOne.outreach_drafts?.map((draft) => draft.personLinkedInUrl),
+      ["https://www.linkedin.com/in/dana-director"],
     );
 
     const artifacts = database.listStageArtifacts(result.runId);

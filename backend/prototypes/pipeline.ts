@@ -1,6 +1,13 @@
 import { pathToFileURL } from "node:url";
 
 import { enrichCompany } from "./company-enrichment.ts";
+import { evaluateOutreachCandidates } from "./outreach-candidate-evaluation.ts";
+import { draftPersonalizedOutreach } from "./outreach-drafting.ts";
+import {
+  generateOutreach,
+  type OutreachGenerationResult,
+} from "./outreach-pipeline.ts";
+import { researchOutreachSignals } from "./outreach-research.ts";
 import { type ICPSnapshot } from "./icp-builder.ts";
 import { findCompanies } from "./company-sourcing.ts";
 import { qualifyCompany } from "./company-qualification.ts";
@@ -40,7 +47,8 @@ export type PipelineResult = {
   discoveredCompanies: number;
 } & EnrichmentCounts &
   QualificationResult &
-  DecisionMakerSearchCounts;
+  DecisionMakerSearchCounts &
+  OutreachGenerationResult;
 
 export function startPipeline(
   database: PipelineDatabase,
@@ -260,6 +268,9 @@ async function executePipeline(
       run,
       dependencies.searchDecisionMakers,
     );
+    const outreach = dependencies.outreach
+      ? await generateOutreach(run, icp, dependencies.outreach)
+      : emptyOutreachResult();
 
     run.complete();
     return {
@@ -269,11 +280,23 @@ async function executePipeline(
       ...enrichment,
       ...qualification,
       ...decisionMakers,
+      ...outreach,
     };
   } catch (error) {
     run.fail(error);
     throw error;
   }
+}
+
+function emptyOutreachResult(): OutreachGenerationResult {
+  return {
+    evaluatedCompanies: 0,
+    failedEvaluations: 0,
+    researchedCompanies: 0,
+    failedResearches: 0,
+    draftedMessages: 0,
+    failedDrafts: 0,
+  };
 }
 
 function reuseEventDiscovery(
@@ -425,6 +448,11 @@ async function main(): Promise<void> {
         qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),
         searchDecisionMakers: (input) =>
           searchDecisionMakers(surfeApiKey, input),
+        outreach: {
+          evaluate: (input) => evaluateOutreachCandidates(geminiApiKey, input),
+          research: (input) => researchOutreachSignals(tavilyApiKey, input),
+          draft: (input) => draftPersonalizedOutreach(geminiApiKey, input),
+        },
       },
     );
     console.log(

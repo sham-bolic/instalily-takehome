@@ -18,6 +18,7 @@ import {
 } from "./company-qualification.ts";
 import { findEvents } from "./event-sourcing.ts";
 import { type CompanyProfile } from "./pipeline-database.ts";
+import type { OutreachPipelineDependencies } from "./outreach-pipeline.ts";
 import { PipelineRun } from "./pipeline-run.ts";
 
 type EventDiscovery = Awaited<ReturnType<typeof findEvents>>;
@@ -47,6 +48,7 @@ export type PipelineDependencies = {
   searchDecisionMakers?: (
     input: DecisionMakerSearchInput,
   ) => Promise<DecisionMakerSearchResult>;
+  outreach?: OutreachPipelineDependencies;
 };
 
 export type EnrichmentCounts = {

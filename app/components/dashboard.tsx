@@ -78,12 +78,25 @@ export function Dashboard({
   const isDecisionMakerRun = decisionMakersFrom !== null;
   const isOutreachRun = outreachFrom !== null;
   const isPeopleRun = isDecisionMakerRun || isOutreachRun;
+  const hasEmbeddedPeople =
+    !isPeopleRun &&
+    artifacts.some(
+      (artifact) =>
+        artifact.stage === "decision_maker_search" ||
+        artifact.stage === "outreach_candidate_evaluation",
+    );
+  const showPeople = isPeopleRun || hasEmbeddedPeople;
+  const showOutreach =
+    isOutreachRun ||
+    artifacts.some(
+      (artifact) => artifact.stage === "outreach_candidate_evaluation",
+    );
   const decisionMakers = qualifiedLeads.flatMap((lead) => lead.decisionMakers);
   const decisionMakerCompanies = toDecisionMakerCompanies(
     qualifiedLeads,
     artifacts,
   );
-  const activeTab = dashboardTab(selectedTab, isPeopleRun);
+  const activeTab = dashboardTab(selectedTab, isPeopleRun, showPeople);
   const icps = database.listICPs();
   const selectedICPId =
     requestedICPId ??
@@ -231,7 +244,8 @@ export function Dashboard({
                   qualifiedLeads={qualifiedLeads}
                   decisionMakerCompanies={decisionMakerCompanies}
                   isPeopleRun={isPeopleRun}
-                  isOutreachRun={isOutreachRun}
+                  showPeople={showPeople}
+                  showOutreach={showOutreach}
                   running={active}
                 />
                 <ArtifactDetails artifacts={artifacts} />
@@ -390,22 +404,30 @@ function RunOverview({
     run.status === "completed" &&
     decisionMakersFrom === null &&
     outreachFrom === null &&
+    !artifacts.some((artifact) => artifact.stage === "decision_maker_search") &&
     profiles.some((profile) => {
       const value = objectValue(profile.profile);
       return objectValue(value.qualification).fit === "high";
     });
   const canGenerateOutreach =
     run.status === "completed" &&
-    decisionMakersFrom !== null &&
+    outreachFrom === null &&
+    !artifacts.some((artifact) =>
+      [
+        "outreach_candidate_evaluation",
+        "outreach_research",
+        "outreach_drafting",
+      ].includes(artifact.stage),
+    ) &&
     profiles.some((profile) => {
       const makers = objectValue(profile.profile).decision_makers;
       return Array.isArray(makers) && makers.length > 0;
     });
   const displayedStages = outreachFrom
-    ? pipelineStages.slice(-2)
+    ? pipelineStages.slice(-3)
     : decisionMakersFrom
       ? pipelineStages.slice(4, 5)
-      : pipelineStages.slice(0, 5);
+      : pipelineStages;
   const activeStageIndex =
     run.status === "running"
       ? displayedStages.findIndex(([stage]) =>
@@ -553,7 +575,8 @@ function ResultTabs({
   qualifiedLeads,
   decisionMakerCompanies,
   isPeopleRun,
-  isOutreachRun,
+  showPeople,
+  showOutreach,
   running,
 }: {
   runId: number;
@@ -564,26 +587,26 @@ function ResultTabs({
   qualifiedLeads: LeadView[];
   decisionMakerCompanies: DecisionMakerCompanyView[];
   isPeopleRun: boolean;
-  isOutreachRun: boolean;
+  showPeople: boolean;
+  showOutreach: boolean;
   running: boolean;
 }) {
+  const peopleTab: [DashboardTab, string, number] = [
+    "people",
+    "People found",
+    decisionMakerCompanies.reduce(
+      (count, company) => count + company.people.length,
+      0,
+    ),
+  ];
   const tabs: Array<[DashboardTab, string, number]> = isPeopleRun
-    ? [
-        [
-          "people",
-          "People found",
-          decisionMakerCompanies.reduce(
-            (count, company) => count + company.people.length,
-            0,
-          ),
-        ],
-        ["qualified", "Qualified companies", qualifiedLeads.length],
-      ]
+    ? [peopleTab, ["qualified", "Qualified companies", qualifiedLeads.length]]
     : [
         ["events", "Events", events.length],
         ["companies", "Companies", companies.length],
         ["enriched", "Enriched companies", enrichedLeads.length],
         ["qualified", "Qualified companies", qualifiedLeads.length],
+        ...(showPeople ? [peopleTab] : []),
       ];
 
   return (
@@ -605,7 +628,7 @@ function ResultTabs({
           <PeopleResults
             companies={decisionMakerCompanies}
             running={running}
-            showOutreach={isOutreachRun}
+            showOutreach={showOutreach}
           />
         ) : activeTab === "events" ? (
           <EventResults runId={runId} events={events} running={running} />
@@ -1252,13 +1275,16 @@ function objectValue(value: unknown): Record<string, unknown> {
 function dashboardTab(
   value: string | undefined,
   isDecisionMakerRun: boolean,
+  showPeople: boolean,
 ): DashboardTab {
   if (isDecisionMakerRun) {
     return value === "qualified" || value === "people" ? value : "people";
   }
   return value === "events" ||
+    value === "companies" ||
     value === "enriched" ||
-    value === "qualified"
+    value === "qualified" ||
+    (value === "people" && showPeople)
     ? value
     : "companies";
 }

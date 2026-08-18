@@ -102,6 +102,61 @@ test("creates a linked outreach run and drafts only matched people", async () =>
   }
 });
 
+test("creates outreach for a completed full pipeline run with matched people", async () => {
+  const database = new PipelineDatabase(":memory:");
+  const sourceRunId = database.createRun({
+    mode: "pipeline",
+    label: "Full pipeline fixture",
+    rootInput: { icp: "Durable graphics" },
+  });
+  saveProfile(
+    database,
+    sourceRunId,
+    "careers.graphics.example",
+    true,
+    "graphics.example",
+  );
+  database.completeRun(sourceRunId);
+
+  try {
+    const execution = startOutreachPipeline(database, sourceRunId, {
+      evaluate: async (input) => input.people.map((person) => ({
+        personLinkedInUrl: person.linkedInUrl,
+        relevanceScore: 80,
+        confidence: "high" as const,
+        rationale: "The role is relevant to the ICP.",
+      })),
+      research: async (input) => ({
+        researched_at: "2026-08-18T00:00:00.000Z",
+        query: "test query",
+        request_id: "request-1",
+        company_domain: input.companyDomain,
+        evidence: [],
+        warnings: [],
+      }),
+      draft: async (input) => ({
+        personLinkedInUrl: input.person.linkedInUrl,
+        message: "Personalized message",
+        whyThisPerson: "Relevant role",
+        whyThisCompany: input.company.qualificationRationale,
+        evidenceIds: [],
+        productClaimId: "tedlar_uv_fading",
+        productClaim: "Tedlar protects graphics from UV exposure and fading.",
+        productClaimSourceUrl: "https://www.dupont.com/tedlar/tedlar-signage-applications.html",
+        confidence: "high",
+        warnings: [],
+        draftedAt: "2026-08-18T00:00:01.000Z",
+      }),
+    });
+    const result = await execution.completion;
+
+    assert.equal(result.sourceRunId, sourceRunId);
+    assert.equal(result.draftedMessages, 1);
+  } finally {
+    database.close();
+  }
+});
+
 test("only researches and drafts candidates who meet the relevance threshold", async () => {
   const database = new PipelineDatabase(":memory:");
   const qualificationRunId = database.createRun({ mode: "pipeline" });
@@ -190,6 +245,7 @@ function saveProfile(
   runId: number,
   domain: string,
   withPerson: boolean,
+  personDomain = domain,
 ): void {
   database.upsertCompanyProfile({
     runId,
@@ -209,7 +265,7 @@ function saveProfile(
             firstName: "Dana",
             lastName: "Director",
             companyName: "Example Graphics",
-            companyDomain: domain,
+            companyDomain: personDomain,
             linkedInUrl: "https://www.linkedin.com/in/dana-director",
             jobTitle: "Director of Product Development",
             seniorities: ["Director"],

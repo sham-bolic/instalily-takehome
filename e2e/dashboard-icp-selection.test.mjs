@@ -28,6 +28,12 @@ test("switching ICPs and opening the ICP builder modal", { timeout: 45_000 }, as
     decisionMakerRunId,
     graphicsId,
   );
+  const fullPipelineRunId = createOutreachRun(
+    database,
+    decisionMakerRunId,
+    graphicsId,
+    true,
+  );
   const runningRunId = createRunningRun(database, aerospaceId);
   database.close();
 
@@ -170,6 +176,26 @@ test("switching ICPs and opening the ICP builder modal", { timeout: 45_000 }, as
         "https://official-company.example/outdoor-graphics",
       );
 
+      await page.goto(
+        `http://127.0.0.1:${port}/runs/${fullPipelineRunId}?tab=people`,
+      );
+      assert.equal(
+        await page.getByRole("heading", { name: "Outreach drafts by company" }).isVisible(),
+        true,
+      );
+      assert.equal(
+        await page.getByRole("region", { name: "Outreach for Dana Director" }).isVisible(),
+        true,
+      );
+      assert.equal(
+        await page.getByRole("button", { name: "Generate outreach" }).count(),
+        0,
+      );
+      assert.equal(
+        await page.getByRole("link", { name: /Events/ }).isVisible(),
+        true,
+      );
+
       await page.goto(`http://127.0.0.1:${port}/runs/${runningRunId}`);
       const runProgress = page.getByRole("status", { name: "Pipeline progress" });
       assert.equal(await runProgress.isVisible(), true);
@@ -291,14 +317,16 @@ function createDecisionMakerRun(database, sourceRunId, icpId) {
   return runId;
 }
 
-function createOutreachRun(database, sourceRunId, icpId) {
+function createOutreachRun(database, sourceRunId, icpId, embedded = false) {
   const runId = database.createRun({
     mode: "pipeline",
-    label: "Outreach: Decision-makers fixture",
+    label: embedded
+      ? "Complete pipeline with outreach"
+      : "Outreach: Decision-makers fixture",
     rootInput: {
       icp: "durable graphics",
       icp_id: icpId,
-      outreach_from_run_id: sourceRunId,
+      ...(embedded ? {} : { outreach_from_run_id: sourceRunId }),
       outreach_relevance_threshold: 70,
     },
   });
