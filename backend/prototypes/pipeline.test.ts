@@ -129,6 +129,7 @@ test("researches every sourced company before Apollo and isolates provider failu
     knownWebsite: string | null;
   }> = [];
   const enrichmentAttempts: Array<{ name?: string; website?: string | null }> = [];
+  const decisionMakerSearches: Array<{ companyName: string; domain: string }> = [];
   const companies = [
     company("Missing URL", null),
     ...Array.from({ length: 7 }, (_, index) =>
@@ -187,6 +188,31 @@ test("researches every sourced company before Apollo and isolates provider failu
           }
           return qualification("medium", name === "Company 5" ? "high" : "low");
         }),
+        searchDecisionMakers: async (input) => {
+          decisionMakerSearches.push(input);
+          return {
+            searched_at: "2026-08-17T00:00:00.000Z",
+            company: input,
+            criteria: {
+              titles: ["Product Development"],
+              seniorities: ["VP", "Director", "Head"],
+            },
+            people: [
+              {
+                firstName: "Dana",
+                lastName: "Director",
+                companyName: input.companyName,
+                companyDomain: input.domain,
+                linkedInUrl: "https://www.linkedin.com/in/dana-director",
+                jobTitle: "Director of Product Development",
+                seniorities: ["Director"],
+                departments: ["Product"],
+                country: "us",
+              },
+            ],
+            total: 1,
+          };
+        },
       },
     );
 
@@ -206,6 +232,9 @@ test("researches every sourced company before Apollo and isolates provider failu
       skippedCompanies: 0,
       failedEnrichments: 0,
       failedQualifications: 1,
+      searchedQualifiedLeads: 1,
+      failedDecisionMakerSearches: 0,
+      decisionMakersFound: 1,
       rankedCompanies: [
         {
           rank: 1,
@@ -237,6 +266,17 @@ test("researches every sourced company before Apollo and isolates provider failu
     });
     assert.equal(database.getRun(result.runId)?.status, "completed");
     assert.equal(database.listCompanyProfiles(result.runId).length, 8);
+    assert.deepEqual(decisionMakerSearches, [
+      { companyName: "Company 1", domain: "company-1.example" },
+    ]);
+    assert.deepEqual(
+      (
+        database.getCompanyProfile(result.runId, "company-1.example")?.profile as {
+          decision_makers?: Array<{ firstName: string }>;
+        }
+      ).decision_makers?.map((person) => person.firstName),
+      ["Dana"],
+    );
 
     const artifacts = database.listStageArtifacts(result.runId);
     assert.equal(

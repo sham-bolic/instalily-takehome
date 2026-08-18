@@ -4,6 +4,7 @@ import { enrichCompany } from "./company-enrichment.ts";
 import { type ICPSnapshot } from "./icp-builder.ts";
 import { findCompanies } from "./company-sourcing.ts";
 import { qualifyCompany } from "./company-qualification.ts";
+import { searchDecisionMakers } from "./decision-maker-search.ts";
 import { researchCompany } from "./company-research.ts";
 import { findEvents } from "./event-sourcing.ts";
 import { PipelineDatabase } from "./pipeline-database.ts";
@@ -13,7 +14,9 @@ import {
   enrichCompanies,
   qualifyCompanies,
   sourceCompanies,
+  sourceDecisionMakers,
   sourceSelectedEvent,
+  type DecisionMakerSearchCounts,
   type EnrichmentCounts,
   type PipelineDependencies,
   type QualificationResult,
@@ -36,7 +39,8 @@ export type PipelineResult = {
   selectedEvent: string;
   discoveredCompanies: number;
 } & EnrichmentCounts &
-  QualificationResult;
+  QualificationResult &
+  DecisionMakerSearchCounts;
 
 export function startPipeline(
   database: PipelineDatabase,
@@ -252,6 +256,10 @@ async function executePipeline(
       icp,
       dependencies.qualifyCompany,
     );
+    const decisionMakers = await sourceDecisionMakers(
+      run,
+      dependencies.searchDecisionMakers,
+    );
 
     run.complete();
     return {
@@ -260,6 +268,7 @@ async function executePipeline(
       discoveredCompanies: sourcing.companies.length,
       ...enrichment,
       ...qualification,
+      ...decisionMakers,
     };
   } catch (error) {
     run.fail(error);
@@ -385,12 +394,13 @@ async function main(): Promise<void> {
   const icp = process.argv.slice(2).join(" ").trim();
   const tavilyApiKey = process.env.TAVILY_API_KEY;
   const geminiApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const surfeApiKey = process.env.SURFE_API_KEY;
 
-  if (!icp || !tavilyApiKey || !geminiApiKey) {
+  if (!icp || !tavilyApiKey || !geminiApiKey || !surfeApiKey) {
     console.error(
       !icp
         ? 'Usage: npm run pipeline -- "<ideal customer profile>"'
-        : "Set the Tavily and Gemini API keys in .env.",
+        : "Set the Tavily, Gemini, and Surfe API keys in .env.",
     );
     process.exitCode = 2;
     return;
@@ -413,11 +423,14 @@ async function main(): Promise<void> {
           return enrichCompany(apiKey, company);
         },
         qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),
+        searchDecisionMakers: (input) =>
+          searchDecisionMakers(surfeApiKey, input),
       },
     );
     console.log(
       `Pipeline run ${result.runId} completed: ${result.enrichedCompanies} enriched, ` +
-        `${result.qualifiedCompanies} qualified, ${result.failedEnrichments + result.failedQualifications} failed`,
+        `${result.qualifiedCompanies} assessed, ${result.decisionMakersFound} decision-makers found, ` +
+        `${result.failedEnrichments + result.failedQualifications + result.failedDecisionMakerSearches} failed`,
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

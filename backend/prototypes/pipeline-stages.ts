@@ -5,6 +5,10 @@ import {
 } from "./company-enrichment.ts";
 import { findCompanies } from "./company-sourcing.ts";
 import {
+  type DecisionMakerSearchInput,
+  type DecisionMakerSearchResult,
+} from "./decision-maker-search.ts";
+import {
   type CompanyResearch,
   type CompanyResearchInput,
 } from "./company-research.ts";
@@ -40,6 +44,9 @@ export type PipelineDependencies = {
   qualifyCompany: (
     input: QualificationInput,
   ) => Promise<CompanyQualification>;
+  searchDecisionMakers?: (
+    input: DecisionMakerSearchInput,
+  ) => Promise<DecisionMakerSearchResult>;
 };
 
 export type EnrichmentCounts = {
@@ -52,6 +59,12 @@ export type QualificationResult = {
   qualifiedCompanies: number;
   failedQualifications: number;
   rankedCompanies: RankedCompany[];
+};
+
+export type DecisionMakerSearchCounts = {
+  searchedQualifiedLeads: number;
+  failedDecisionMakerSearches: number;
+  decisionMakersFound: number;
 };
 
 export type RankedCompany = {
@@ -416,6 +429,71 @@ export async function qualifyCompanies(
     qualifiedCompanies: assessed.length,
     failedQualifications,
     rankedCompanies,
+  };
+}
+
+export async function sourceDecisionMakers(
+  run: PipelineRun,
+  search: PipelineDependencies["searchDecisionMakers"],
+): Promise<DecisionMakerSearchCounts> {
+  if (!search) {
+    return {
+      searchedQualifiedLeads: 0,
+      failedDecisionMakerSearches: 0,
+      decisionMakersFound: 0,
+    };
+  }
+
+  let searchedQualifiedLeads = 0;
+  let failedDecisionMakerSearches = 0;
+  let decisionMakersFound = 0;
+
+  for (const profile of run.profiles()) {
+    const value = objectValue(profile.profile);
+    const qualification = objectValue(value.qualification);
+    if (qualification.fit !== "high") continue;
+
+    try {
+      const result = await run.stage(
+        {
+          name: "decision_maker_search",
+          companyDomain: profile.domain,
+          provider: "surfe",
+          input: {
+            company_name: profileName(profile),
+            company_domain: profile.domain,
+          },
+        },
+        () =>
+          search({
+            companyName: profileName(profile),
+            domain: profile.domain,
+          }),
+      );
+      searchedQualifiedLeads += 1;
+      decisionMakersFound += result.people.length;
+      run.saveProfile({
+        domain: profile.domain,
+        companyUrl: profile.companyUrl,
+        profile: {
+          ...value,
+          decision_makers: result.people,
+          decision_maker_search: {
+            searched_at: result.searched_at,
+            criteria: result.criteria,
+            total: result.total,
+          },
+        },
+      });
+    } catch {
+      failedDecisionMakerSearches += 1;
+    }
+  }
+
+  return {
+    searchedQualifiedLeads,
+    failedDecisionMakerSearches,
+    decisionMakersFound,
   };
 }
 

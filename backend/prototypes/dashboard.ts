@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { enrichCompany } from "./company-enrichment.ts";
 import { qualifyCompany } from "./company-qualification.ts";
 import { researchCompany } from "./company-research.ts";
+import { searchDecisionMakers } from "./decision-maker-search.ts";
 import { findCompanies } from "./company-sourcing.ts";
 import { findEvents } from "./event-sourcing.ts";
 import {
@@ -200,9 +201,10 @@ function startLiveRun(database: PipelineDatabase, icp: SavedICP): number {
   const tavilyApiKey = process.env.TAVILY_API_KEY;
   const apolloApiKey = process.env.APOLLO_API_KEY;
   const geminiApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!tavilyApiKey || !apolloApiKey || !geminiApiKey) {
+  const surfeApiKey = process.env.SURFE_API_KEY;
+  if (!tavilyApiKey || !apolloApiKey || !geminiApiKey || !surfeApiKey) {
     throw new Error(
-      "Set the Tavily, Apollo, and Gemini API keys before running the pipeline.",
+      "Set the Tavily, Apollo, Gemini, and Surfe API keys before running the pipeline.",
     );
   }
 
@@ -221,6 +223,7 @@ function startLiveRun(database: PipelineDatabase, icp: SavedICP): number {
       researchCompany: (company) => researchCompany(tavilyApiKey, company),
       enrichCompany: (company) => enrichCompany(apolloApiKey, company),
       qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),
+      searchDecisionMakers: (input) => searchDecisionMakers(surfeApiKey, input),
     },
   );
   void execution.completion.catch((error) => {
