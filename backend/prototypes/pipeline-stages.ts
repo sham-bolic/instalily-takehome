@@ -1,5 +1,13 @@
-import { extractDomain } from "./company-enrichment.ts";
+import {
+  extractDomain,
+  normalizeCompanyUrl,
+  type CompanyMatchInput,
+} from "./company-enrichment.ts";
 import { findCompanies } from "./company-sourcing.ts";
+import {
+  type CompanyResearch,
+  type CompanyResearchInput,
+} from "./company-research.ts";
 import {
   type CompanyQualification,
   type QualificationInput,
@@ -18,10 +26,17 @@ type Enrichment = {
   provider_response: unknown;
 };
 
+type ApolloOrganization = {
+  name?: unknown;
+  website_url?: unknown;
+  primary_domain?: unknown;
+};
+
 export type PipelineDependencies = {
   findEvents: (icp: string) => Promise<EventDiscovery>;
   findCompanies: (event: string, directoryUrl: string) => Promise<CompanySourcing>;
-  enrichCompany: (companyUrl: string) => Promise<Enrichment>;
+  researchCompany: (company: CompanyResearchInput) => Promise<CompanyResearch>;
+  enrichCompany: (company: CompanyMatchInput) => Promise<Enrichment>;
   qualifyCompany: (
     input: QualificationInput,
   ) => Promise<CompanyQualification>;
@@ -85,23 +100,7 @@ export async function sourceCompanies(
 
   for (const event of candidates) {
     try {
-      const sourcing = await run.stage(
-        {
-          name: "company_sourcing",
-          input: {
-            event: event.name,
-            directory_url: event.company_source.url,
-          },
-        },
-        async () => {
-          const result = await findForEvent(event.name, event.company_source.url);
-          if (result.companies.length === 0) {
-            throw new Error("The directory did not contain any recognizable exhibitors.");
-          }
-          return result;
-        },
-      );
-      return { event, sourcing };
+      return await sourceEvent(run, event, findForEvent);
     } catch {
       // The failed artifact is persisted. Try the next event.
     }
@@ -110,89 +109,243 @@ export async function sourceCompanies(
   throw new Error("No qualifying event had a usable company directory.");
 }
 
+export async function sourceSelectedEvent(
+  run: PipelineRun,
+  event: Event & { company_source: NonNullable<Event["company_source"]> },
+  findForEvent: PipelineDependencies["findCompanies"],
+): Promise<{ event: Event; sourcing: CompanySourcing }> {
+  return sourceEvent(run, event, findForEvent);
+}
+
+async function sourceEvent(
+  run: PipelineRun,
+  event: Event & { company_source: NonNullable<Event["company_source"]> },
+  findForEvent: PipelineDependencies["findCompanies"],
+): Promise<{ event: Event; sourcing: CompanySourcing }> {
+  const sourcing = await run.stage(
+    {
+      name: "company_sourcing",
+      input: {
+        event: event.name,
+        directory_url: event.company_source.url,
+      },
+    },
+    async () => {
+      const result = await findForEvent(event.name, event.company_source.url);
+      if (result.companies.length === 0) {
+        throw new Error("The directory did not contain any recognizable exhibitors.");
+      }
+      return result;
+    },
+  );
+  return { event, sourcing };
+}
+
 export async function enrichCompanies(
   run: PipelineRun,
   event: Event,
   companies: Company[],
   limit: number,
+  research: PipelineDependencies["researchCompany"],
   enrich: PipelineDependencies["enrichCompany"],
 ): Promise<EnrichmentCounts> {
-  const missingUrls = companies.filter((company) => company.company_url === null);
-  for (const company of missingUrls) {
-    run.completed(
-      { name: "company_enrichment", input: { event: event.name, company } },
-      { status: "skipped", reason: "missing_company_url" },
-    );
-  }
-
-  const enrichable = companies
-    .filter(
-      (company): company is Company & { company_url: string } =>
-        company.company_url !== null,
-    )
-    .slice(0, limit);
   let enrichedCompanies = 0;
+  let skippedCompanies = 0;
   let failedEnrichments = 0;
 
-  for (const company of enrichable) {
+  for (const company of companies.slice(0, limit)) {
     try {
-      await enrichOneCompany(run, event, company, enrich);
-      enrichedCompanies += 1;
+      const status = await enrichOneCompany(
+        run,
+        event,
+        company,
+        research,
+        enrich,
+      );
+      if (status === "enriched") enrichedCompanies += 1;
+      else skippedCompanies += 1;
     } catch {
       failedEnrichments += 1;
     }
   }
 
-  return {
-    enrichedCompanies,
-    skippedCompanies: missingUrls.length,
-    failedEnrichments,
-  };
+  return { enrichedCompanies, skippedCompanies, failedEnrichments };
 }
 
 async function enrichOneCompany(
   run: PipelineRun,
   event: Event,
-  company: Company & { company_url: string },
+  company: Company,
+  research: PipelineDependencies["researchCompany"],
   enrich: PipelineDependencies["enrichCompany"],
-): Promise<void> {
-  const domain = extractDomain(company.company_url);
-  const cached = run.cachedEnrichment(domain);
+): Promise<"enriched" | "skipped"> {
+  const initialInput = companyMatchInput(company);
+  let companyResearch: CompanyResearch | null = null;
+  try {
+    companyResearch = await run.stage(
+      {
+        name: "company_research",
+        provider: "tavily",
+        input: {
+          event: event.name,
+          company: initialInput,
+        },
+      },
+      () =>
+        research({
+          name: company.name,
+          event: event.name,
+          knownWebsite: company.company_url,
+        }),
+    );
+  } catch {
+    // Apollo remains a fallback when public-web research fails.
+  }
+
+  const researchedWebsite = companyResearch?.company_url ?? company.company_url;
+  const input = { name: company.name, website: researchedWebsite };
+  const knownDomain = researchedWebsite ? extractDomain(researchedWebsite) : null;
+  const cached = knownDomain ? run.cachedEnrichment(knownDomain) : null;
   const cacheReference = cached
     ? { source_run_id: cached.runId, source_artifact_id: cached.id }
     : null;
-  const output = await run.stage(
+  let providerOutput: unknown = null;
+  let apolloError: string | null = null;
+
+  try {
+    providerOutput = cached
+      ? providerOutputFromCache(cached.output)
+      : await run.stage(
+          {
+            name: "apollo_enrichment",
+            ...(knownDomain ? { companyDomain: knownDomain } : {}),
+            provider: "apollo",
+            input: { event: event.name, company: input },
+          },
+          () => enrich(input),
+        );
+  } catch (error) {
+    apolloError = error instanceof Error ? error.message : String(error);
+  }
+
+  const organization = organizationFrom(providerOutput);
+  const apolloMatched =
+    organization !== null && isAcceptableMatch({ ...company, company_url: researchedWebsite }, organization);
+  const companyUrl = researchedWebsite
+    ? normalizeCompanyUrl(researchedWebsite)
+    : apolloMatched
+      ? resolvedCompanyUrl(company, organization)
+      : null;
+  const output = companyUrl
+    ? {
+        status: "enriched" as const,
+        company_url: companyUrl,
+        research: companyResearch,
+        apollo: {
+          status: apolloMatched ? ("success" as const) : apolloError ? ("error" as const) : ("no_match" as const),
+          provider_output: providerOutput,
+          error: apolloError,
+        },
+        cache_reference: cacheReference,
+      }
+    : {
+        status: "skipped" as const,
+        reason: "company_identity_not_resolved" as const,
+        research: companyResearch,
+        apollo: {
+          status: apolloError ? ("error" as const) : ("no_match" as const),
+          provider_output: providerOutput,
+          error: apolloError,
+        },
+      };
+
+  run.completed(
     {
       name: "company_enrichment",
-      companyDomain: domain,
-      provider: "apollo",
-      input: {
-        event: event.name,
-        company_name: company.name,
-        domain,
-        website: company.company_url,
-      },
+      ...(companyUrl ? { companyDomain: extractDomain(companyUrl) } : {}),
+      provider: "coordinator",
+      input: { event: event.name, company: input },
     },
-    async () => ({
-      status: "enriched",
-      cache_reference: cacheReference,
-      provider_output: cached
-        ? providerOutputFromCache(cached.output)
-        : await enrich(company.company_url),
-    }),
+    output,
   );
+  if (output.status === "skipped") return "skipped";
 
+  const domain = extractDomain(output.company_url);
   run.saveProfile({
     domain,
-    companyUrl: company.company_url,
+    companyUrl: output.company_url,
     profile: {
       name: company.name,
       event: event.name,
-      company_url: company.company_url,
-      enrichment: output.provider_output,
-      cache_reference: cacheReference,
+      company_url: output.company_url,
+      research: output.research,
+      enrichment: output.apollo.provider_output,
+      provider_outcomes: { apollo: output.apollo.status },
+      cache_reference: output.cache_reference,
     },
   });
+  return "enriched";
+}
+
+function companyMatchInput(company: Company): CompanyMatchInput {
+  return { name: company.name, website: company.company_url };
+}
+
+function organizationFrom(enrichment: unknown): ApolloOrganization | null {
+  const response = objectValue(objectValue(enrichment).provider_response);
+  const organization = response.organization;
+  return typeof organization === "object" && organization !== null
+    ? (organization as ApolloOrganization)
+    : null;
+}
+
+function canonicalCompanyName(value: unknown): string {
+  return typeof value === "string"
+    ? value
+        .toLocaleLowerCase("en-US")
+        .replace(/&/g, " and ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\b(?:incorporated|inc|limited|ltd|llc|corp|corporation|company|co)\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    : "";
+}
+
+function isAcceptableMatch(
+  company: Company,
+  organization: ApolloOrganization,
+): boolean {
+  if (company.company_url) return true;
+  const expected = canonicalCompanyName(company.name);
+  return expected !== "" && expected === canonicalCompanyName(organization.name);
+}
+
+function organizationWebsite(organization: ApolloOrganization): string | null {
+  if (typeof organization.website_url === "string") {
+    try {
+      return normalizeCompanyUrl(organization.website_url);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof organization.primary_domain === "string") {
+    try {
+      return normalizeCompanyUrl(`https://${organization.primary_domain}`);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function resolvedCompanyUrl(
+  company: Company,
+  organization: ApolloOrganization | null,
+): string | null {
+  if (!organization) return null;
+  return company.company_url
+    ? normalizeCompanyUrl(company.company_url)
+    : organizationWebsite(organization);
 }
 
 export async function qualifyCompanies(
@@ -261,16 +414,11 @@ function qualificationRank(assessment: CompanyQualification): number {
 }
 
 function providerOutputFromCache(output: unknown): unknown {
-  if (
-    typeof output === "object" &&
-    output !== null &&
-    "status" in output &&
-    output.status === "enriched" &&
-    "provider_output" in output
-  ) {
-    return output.provider_output;
-  }
-  return output;
+  const value = objectValue(output);
+  if (value.status !== "enriched") return output;
+  if ("provider_output" in value) return value.provider_output;
+  const apollo = objectValue(value.apollo);
+  return "provider_output" in apollo ? apollo.provider_output : output;
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

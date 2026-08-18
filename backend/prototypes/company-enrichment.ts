@@ -6,10 +6,18 @@ import { runStageProbe } from "./stage-probe.ts";
 const APOLLO_ENRICHMENT_URL =
   "https://api.apollo.io/api/v1/organizations/enrich";
 
-type ApolloMatchInput = {
-  domain: string;
-  website: string;
+export type CompanyMatchInput = {
+  name?: string;
+  website?: string | null;
 };
+
+type ApolloMatchInput = {
+  name?: string;
+  domain?: string;
+  website?: string;
+};
+
+type Fetcher = typeof fetch;
 
 export function normalizeCompanyUrl(companyUrl: string): string {
   const url = new URL(companyUrl);
@@ -26,36 +34,41 @@ export function extractDomain(companyUrl: string): string {
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
 }
 
-async function fetchApolloOrganization(
-  apiKey: string,
-  matchInput: ApolloMatchInput,
-): Promise<unknown> {
-  const url = new URL(APOLLO_ENRICHMENT_URL);
-  url.search = new URLSearchParams(matchInput).toString();
+function apolloMatchInput(input: CompanyMatchInput): ApolloMatchInput {
+  const name = input.name?.trim() || undefined;
+  const website = input.website ? normalizeCompanyUrl(input.website) : undefined;
+  if (!name && !website) {
+    throw new Error("Company enrichment requires a company name or website.");
+  }
 
-  const response = await fetch(url, {
+  return {
+    ...(name ? { name } : {}),
+    ...(website ? { domain: extractDomain(website), website } : {}),
+  };
+}
+
+export async function enrichCompany(
+  apiKey: string,
+  input: CompanyMatchInput,
+  fetcher: Fetcher = fetch,
+) {
+  const request = apolloMatchInput(input);
+  const url = new URL(APOLLO_ENRICHMENT_URL);
+  url.search = new URLSearchParams(request).toString();
+  const response = await fetcher(url, {
     headers: {
       accept: "application/json",
       "x-api-key": apiKey,
     },
   });
-  const body: unknown = await response.json();
+  const providerResponse: unknown = await response.json();
 
   if (!response.ok) {
-    const message = JSON.stringify(body).slice(0, 500);
+    const message = JSON.stringify(providerResponse).slice(0, 500);
     throw new Error(
       `Apollo enrichment failed (${response.status}): ${message}`,
     );
   }
-
-  return body;
-}
-
-export async function enrichCompany(apiKey: string, companyUrl: string) {
-  const website = normalizeCompanyUrl(companyUrl);
-  const domain = extractDomain(website);
-  const request = { domain, website };
-  const providerResponse = await fetchApolloOrganization(apiKey, request);
 
   return {
     enriched_at: new Date().toISOString(),
@@ -105,14 +118,14 @@ async function main(): Promise<void> {
       return;
     }
 
-    const request = { domain, website: companyUrl };
+    const request = { website: companyUrl };
     const { runId } = await runStageProbe(database, {
       stage: "company_enrichment",
       label: `Company enrichment: ${domain}`,
       companyDomain: domain,
       input: request,
       provider: "apollo",
-      execute: () => enrichCompany(apiKey, companyUrl),
+      execute: () => enrichCompany(apiKey, request),
     });
     console.log(`Saved Apollo enrichment to SQLite run ${runId}`);
   } finally {
