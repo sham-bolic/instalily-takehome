@@ -9,8 +9,9 @@ The sourcing flow is split into independent probes so each stage can be tested b
 3. Company research: one neutral Tavily search per company resolves identity and collects general public-web information
 4. Company enrichment: the resolved domain is optionally matched to Apollo and merged with public-web research
 5. Company qualification: enriched profile and ICP in, evidence-backed assessment out
+6. Decision-maker search: high-fit leads are searched in Surfe for relevant VPs, Directors, and Heads
 
-All four stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini 3.7 Flash through the Vercel AI SDK.
+All stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini 3.7 Flash through the Vercel AI SDK.
 
 ## Run the connected pipeline
 
@@ -31,7 +32,9 @@ The pipeline:
 6. Reuses earlier successful Apollo artifacts when a company domain is already known.
 7. Assesses each enriched company against the ICP with Gemini and validates the structured response.
 8. Ranks companies by categorical fit and confidence.
-9. Continues after individual research, enrichment, or qualification failures and records them for inspection.
+9. Searches Surfe only for companies rated high fit, using the verified company domain and the Product Development, Innovation, R&D, Coatings, and Protective Solutions role families.
+10. Saves full names, titles, seniority, department, country, and LinkedIn URLs to each qualified company profile.
+11. Continues after individual research, enrichment, qualification, or decision-maker search failures and records them for inspection.
 
 Event discovery is a required stage. A run fails when discovery fails, no event meets the threshold, or no qualifying event has a usable directory. Individual company failures do not fail the run.
 
@@ -50,7 +53,7 @@ Copy the example environment file and add the keys required by the stages you wa
 cp .env.example .env
 ```
 
-The connected pipeline requires `TAVILY_API_KEY`, `APOLLO_API_KEY` for uncached Apollo enrichment, and `GOOGLE_GENERATIVE_AI_API_KEY`. Gemini calls default to `gemini-3.5-flash-lite`; set `GOOGLE_GENERATIVE_AI_MODEL` to override the model without changing code. Each company research step makes exactly one basic Tavily search with at most five results and does not retry.
+The connected pipeline requires `TAVILY_API_KEY`, `APOLLO_API_KEY` for uncached Apollo enrichment, `GOOGLE_GENERATIVE_AI_API_KEY`, and `SURFE_API_KEY` for decision-maker search. Outreach drafting reuses the Tavily and Gemini keys. Gemini calls default to `gemini-3.5-flash-lite`; set `GOOGLE_GENERATIVE_AI_MODEL` to override the model without changing code. Each company identity research step makes exactly one basic Tavily search with at most five results and does not retry.
 
 Google's Gemini free tier may use submitted content to improve its products. Do not send confidential, personal, or otherwise sensitive data through the free tier.
 
@@ -76,6 +79,26 @@ For terminal-based inspection, list all runs or inspect one run with:
 npm run db:inspect
 npm run db:inspect -- 1
 ```
+
+## Search decision-makers for an existing run
+
+A completed qualification run can be reused without repeating discovery, sourcing, Apollo enrichment, or Gemini qualification:
+
+```bash
+npm run decision-makers -- 16
+```
+
+The command imports only the source run's high-fit company profiles into a new linked run, searches those companies with Surfe, and leaves the completed source run unchanged. The follow-up run appears in the dashboard with its qualified companies and decision-makers. The same action is available through the **Find decision-makers** button on any completed run containing high-fit leads.
+
+## Generate personalized outreach for an existing decision-maker run
+
+A completed decision-maker run can be reused without rerunning Surfe or earlier qualification stages:
+
+```bash
+npm run outreach -- 17
+```
+
+The command asks Gemini to score every Surfe candidate against the run's ICP and company context. Candidates scoring at least 70 proceed to first-party company research and message drafting; lower-scoring candidates remain visible with their score and rationale. TypeScript verifies that Gemini evaluated every supplied candidate exactly once and did not invent a person. Drafts use company evidence and one approved DuPont claim. The linked run shows editable messages, relevance scores, rationale, evidence links, warnings, and a **Copy message** button. The same action is available through **Generate outreach** on a completed decision-maker run.
 
 ## Test event sourcing
 
@@ -142,6 +165,6 @@ Apollo charges one credit per organization enrichment. The script makes no reque
 - Company extraction currently recognizes linked exhibitor profiles and HTML tables with company and booth columns. Other directory layouts will need additional extraction strategies.
 - Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. The pipeline uses one Tavily search to resolve them, but ambiguous companies remain unresolved rather than being guessed.
 - Apollo fields can be absent, especially for small or private companies. Missing values remain `null`, and the public-web research remains available when Apollo has no match.
-- Company research stores Tavily's summary and result excerpts but does not crawl company websites or identify decision-makers.
+- Surfe title matching can include people from an unrelated business unit. Gemini evaluates all returned candidates against the ICP, while application code validates candidate identity and applies the relevance threshold before drafting.
 - Qualification receives the assembled profile, including the raw Apollo response. That response has not yet been normalized into first-class evidence claims and source records.
 - Free Gemini API quotas can change and may throttle a multi-company run. Qualification failures remain isolated to the affected company.

@@ -17,10 +17,13 @@ flowchart TD
     GATE{Any enricher matched?}
     ASSESS[4. LLM assessor evaluates evidence]
     SCORE[5. Application ranks by fit and confidence]
+    HIGH_FIT{High fit?}
+    PEOPLE[6. Search decision-makers]
     SKIP[Record as not enriched]
 
     TAVILY[Tavily and public web]
     APOLLO[Apollo enricher]
+    SURFE[Surfe people search]
     OTHER[Additional enrichers]
     DB[(SQLite: runs, artifacts, evidence, and results)]
     CACHE[Labelled cached demo run]
@@ -35,7 +38,10 @@ flowchart TD
     GATE -->|yes| ASSESS
     GATE -->|no| SKIP
     ASSESS -->|fit, confidence, rationale, and evidence| SCORE
-    SCORE -->|ranked Leads| DB
+    SCORE --> HIGH_FIT
+    HIGH_FIT -->|yes| PEOPLE
+    HIGH_FIT -->|no| DB
+    PEOPLE -->|names, titles, and LinkedIn URLs| DB
     SKIP --> DB
     DB -->|progress, artifacts, and results| API
 
@@ -43,6 +49,7 @@ flowchart TD
     TAVILY --> COMPANIES
     TAVILY -. optional web enrichment .-> ENRICH
     APOLLO --> ENRICH
+    SURFE --> PEOPLE
     OTHER -. extension .-> ENRICH
     CACHE -. offline fallback .-> DB
 ```
@@ -56,7 +63,8 @@ The orchestrator, not an AI agent, controls stage order, budgets, persistence, a
 5. A company proceeds when at least one enricher successfully matches it. If every enricher returns `no_match` or `error`, the company is recorded as not enriched and is not assessed.
 6. The assessor evaluates only the immutable profile and attached evidence. It cannot browse, retrieve more evidence, or send the company back through enrichment.
 7. Application code validates the assessor output and ranks companies by categorical fit and confidence.
-8. Decision-maker discovery and outreach drafting are future consumers of ranked Leads, not steps in company qualification.
+8. Only leads rated `high` fit proceed to Surfe decision-maker search. The search uses the verified company domain and role families from the case-study instructions. Search failures are isolated to that lead.
+9. A linked outreach run reuses matched decision-makers and asks Gemini to score every candidate against the ICP and company context. Application code validates candidate identity and applies a relevance threshold of 70. Candidates that pass are researched with Tavily and receive editable, evidence-grounded Gemini drafts. The dashboard supports review and copy, but not automatic sending.
 
 ## Runtime shape
 
@@ -95,6 +103,7 @@ backend/
 ├── company_sourcing/    # Event-to-company sourcing and deduplication
 ├── enrichment/          # Enricher coordination and profile merging
 ├── qualification/       # Structured LLM fit assessment
+├── decision_makers/     # Qualified-lead people search and validation
 ├── evidence/            # Sources, claims, and provenance
 ├── persistence/         # SQLite implementation
 └── providers/           # Tavily, Apollo, and LLM adapters
@@ -114,6 +123,10 @@ backend/
 
 **Ranking** orders companies by categorical fit and then confidence. The MVP does not calculate a numeric score because the current evidence and rubric do not justify that precision.
 
+**Decision-maker discovery** searches Surfe only for high-fit leads. It scopes each request to the verified company domain and the VP, Director, and Head roles relevant to Product Development, Innovation, R&D, Coatings, and Protective Solutions. Results remain attached to the qualified lead.
+
+**Outreach enrichment** runs as an immutable follow-up to decision-maker discovery. Gemini evaluates all Surfe candidates together for each company and returns a relevance score, confidence, and rationale. Application code verifies that every supplied candidate was evaluated exactly once, rejects unknown identities, and selects everyone meeting the run's relevance threshold. Tavily then retrieves first-party evidence once per company, and Gemini chooses from approved Tedlar claims while drafting each selected person's message. Missing research falls back to role and qualification context with a warning. Evaluation, research, and drafting failures remain isolated by company or person.
+
 **Evidence** owns source records, extracted claims, and their links to selected profile fields. Evidence is persisted with run artifacts rather than hidden inside prompts or prose.
 
 **Presentation** maps HTTP requests and responses to application use cases. It contains no discovery, enrichment, qualification, provider, or fallback decisions.
@@ -131,6 +144,7 @@ Use versioned Pydantic models whenever data crosses a module boundary.
 - `SourceRecord`
 - `EvidenceClaim`
 - `QualificationAssessment`
+- `DecisionMaker`
 - `Lead`
 - `RunSnapshot`
 - `StageArtifact`
