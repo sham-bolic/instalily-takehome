@@ -73,8 +73,8 @@ The dashboard starts a run, receives its identifier, and polls the application A
 
 The application module is the only backend interface used by FastAPI. It exposes user workflows rather than providers or pipeline internals:
 
-- read and update the active ICP
-- start a run from an immutable ICP snapshot
+- list, create, and read saved ICPs
+- start a run from an immutable snapshot of the selected ICP
 - read run status, current stage, warnings, and provider usage
 - list discovered Event Sources and Candidate Companies
 - list ranked Leads
@@ -100,7 +100,7 @@ backend/
 └── providers/           # Tavily, Apollo, and LLM adapters
 ```
 
-**ICP management** validates and persists the single editable ICP. Every run receives an immutable snapshot so later edits cannot change an active or historical run.
+**ICP management** validates and persists reusable named ICPs. Every run receives an immutable snapshot of the selected ICP so later changes cannot alter an active or historical run.
 
 **Pipeline orchestration** owns stage order, fan-out across companies, budgets, artifact persistence, and partial-failure policy. Stages never call one another directly.
 

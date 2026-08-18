@@ -1,7 +1,39 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { buildICPSnapshot } from "./icp-builder.ts";
 import { PipelineDatabase } from "./pipeline-database.ts";
+
+test("stores multiple named ICPs", () => {
+  const database = new PipelineDatabase(":memory:");
+  const films = buildICPSnapshot({
+    offering: "Protective films",
+    targetCompanies: "Sign manufacturers",
+    applications: "Outdoor graphics",
+  });
+  const coatings = buildICPSnapshot({
+    offering: "Protective coatings",
+    targetCompanies: "Aircraft manufacturers",
+    applications: "Aircraft interiors",
+  });
+
+  try {
+    const filmsId = database.createICP({ name: "Graphics and signage", snapshot: films });
+    const coatingsId = database.createICP({ name: "Aircraft interiors", snapshot: coatings });
+
+    assert.deepEqual(
+      database.listICPs().map(({ id, name, snapshot }) => ({ id, name, snapshot })),
+      [
+        { id: filmsId, name: "Graphics and signage", snapshot: films },
+        { id: coatingsId, name: "Aircraft interiors", snapshot: coatings },
+      ],
+    );
+    assert.equal(database.getICP(filmsId)?.name, "Graphics and signage");
+    assert.equal(database.getICP(999), null);
+  } finally {
+    database.close();
+  }
+});
 
 test("records an independently executed stage as a probe run", () => {
   const database = new PipelineDatabase(":memory:");

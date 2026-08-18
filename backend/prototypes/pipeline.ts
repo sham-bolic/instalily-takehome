@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 
 import { enrichCompany } from "./company-enrichment.ts";
+import { type ICPSnapshot } from "./icp-builder.ts";
 import { findCompanies } from "./company-sourcing.ts";
 import { qualifyCompany } from "./company-qualification.ts";
 import { findEvents } from "./event-sourcing.ts";
@@ -19,8 +20,11 @@ import {
 export const DEFAULT_EVENT_THRESHOLD = 0.7;
 export const DEFAULT_ENRICHMENT_LIMIT = 5;
 
-type PipelineOptions = {
+export type PipelineOptions = {
   icp: string;
+  icpId?: number;
+  icpName?: string;
+  icpSnapshot?: ICPSnapshot;
   eventThreshold?: number;
   enrichmentLimit?: number;
 };
@@ -32,26 +36,53 @@ export type PipelineResult = {
 } & EnrichmentCounts &
   QualificationResult;
 
-export async function runPipeline(
+export function startPipeline(
   database: PipelineDatabase,
   options: PipelineOptions,
   dependencies: PipelineDependencies,
-): Promise<PipelineResult> {
+): { runId: number; completion: Promise<PipelineResult> } {
   const eventThreshold = options.eventThreshold ?? DEFAULT_EVENT_THRESHOLD;
   const enrichmentLimit = options.enrichmentLimit ?? DEFAULT_ENRICHMENT_LIMIT;
   const run = new PipelineRun(database, {
     label: `Lead pipeline: ${options.icp}`,
     rootInput: {
       icp: options.icp,
+      ...(options.icpId === undefined ? {} : { icp_id: options.icpId }),
+      ...(options.icpName === undefined ? {} : { icp_name: options.icpName }),
+      ...(options.icpSnapshot === undefined ? {} : { icp_snapshot: options.icpSnapshot }),
       event_threshold: eventThreshold,
       enrichment_limit: enrichmentLimit,
     },
   });
+  const completion = executePipeline(
+    run,
+    options.icp,
+    eventThreshold,
+    enrichmentLimit,
+    dependencies,
+  );
+  return { runId: run.id, completion };
+}
 
+export function runPipeline(
+  database: PipelineDatabase,
+  options: PipelineOptions,
+  dependencies: PipelineDependencies,
+): Promise<PipelineResult> {
+  return startPipeline(database, options, dependencies).completion;
+}
+
+async function executePipeline(
+  run: PipelineRun,
+  icp: string,
+  eventThreshold: number,
+  enrichmentLimit: number,
+  dependencies: PipelineDependencies,
+): Promise<PipelineResult> {
   try {
     const discovery = await discoverEvents(
       run,
-      options.icp,
+      icp,
       eventThreshold,
       dependencies.findEvents,
     );
@@ -70,7 +101,7 @@ export async function runPipeline(
     );
     const qualification = await qualifyCompanies(
       run,
-      options.icp,
+      icp,
       dependencies.qualifyCompany,
     );
 

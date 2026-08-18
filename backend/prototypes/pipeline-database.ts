@@ -2,6 +2,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { type ICPSnapshot } from "./icp-builder.ts";
+
 export const DEFAULT_DATABASE_PATH =
   "backend/prototypes/results/pipeline.sqlite";
 
@@ -42,6 +44,14 @@ export type CompanyProfile = {
   domain: string;
   companyUrl: string;
   profile: JsonValue;
+  updatedAt: string;
+};
+
+export type SavedICP = {
+  id: number;
+  name: string;
+  snapshot: ICPSnapshot;
+  createdAt: string;
   updatedAt: string;
 };
 
@@ -129,6 +139,37 @@ export class PipelineDatabase {
     return (
       this.#database.prepare("SELECT * FROM runs ORDER BY id").all() as RunRow[]
     ).map(toRun);
+  }
+
+  createICP({ name, snapshot }: { name: string; snapshot: ICPSnapshot }): number {
+    const cleanName = name.trim();
+    if (!cleanName) throw new Error("Enter an ICP name.");
+
+    const now = new Date().toISOString();
+    return Number(
+      this.#database
+        .prepare(
+          `
+          INSERT INTO icps (name, snapshot_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?)
+          RETURNING id
+        `,
+        )
+        .get(cleanName, json(snapshot), now, now)?.id,
+    );
+  }
+
+  getICP(id: number): SavedICP | null {
+    const row = this.#database
+      .prepare("SELECT * FROM icps WHERE id = ?")
+      .get(id) as ICPRow | undefined;
+    return row ? toSavedICP(row) : null;
+  }
+
+  listICPs(): SavedICP[] {
+    return (
+      this.#database.prepare("SELECT * FROM icps ORDER BY id").all() as ICPRow[]
+    ).map(toSavedICP);
   }
 
   recordStageArtifact(artifact: StageArtifactInput): number {
@@ -272,6 +313,25 @@ export class PipelineDatabase {
         finished_at TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS active_icp (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        snapshot_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS icps (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO icps (name, snapshot_json, created_at, updated_at)
+      SELECT 'Imported ICP', snapshot_json, updated_at, updated_at
+      FROM active_icp
+      WHERE NOT EXISTS (SELECT 1 FROM icps);
+
       CREATE TABLE IF NOT EXISTS stage_artifacts (
         id INTEGER PRIMARY KEY,
         run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -301,6 +361,14 @@ export class PipelineDatabase {
     `);
   }
 }
+
+type ICPRow = {
+  id: number;
+  name: string;
+  snapshot_json: string;
+  created_at: string;
+  updated_at: string;
+};
 
 type RunRow = {
   id: number;
@@ -335,6 +403,16 @@ type CompanyProfileRow = {
   profile_json: string;
   updated_at: string;
 };
+
+function toSavedICP(row: ICPRow): SavedICP {
+  return {
+    id: row.id,
+    name: row.name,
+    snapshot: parse(row.snapshot_json) as ICPSnapshot,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 function toRun(row: RunRow): Run {
   return {
