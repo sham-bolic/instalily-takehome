@@ -2,13 +2,12 @@ import { pathToFileURL } from "node:url";
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText, Output } from "ai";
-import { chromium } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { z } from "zod";
 
+import { GEMINI_MODEL } from "./gemini-config.ts";
 import { PipelineDatabase } from "./pipeline-database.ts";
 import { runStageProbe } from "./stage-probe.ts";
-
-const GEMINI_MODEL = "gemini-3.7-flash";
 const MAX_COMPANIES = 10;
 const MAX_PAGE_TEXT = 150_000;
 const MAX_LINKS = 1_000;
@@ -37,7 +36,7 @@ const pageAnalysisSchema = z.object({
 
 type PageAnalysis = z.infer<typeof pageAnalysisSchema>;
 
-type RenderedPage = {
+export type RenderedPage = {
   url: string;
   title: string;
   status: number | null;
@@ -66,16 +65,15 @@ Rules:
 - evidenceText must be a short exact excerpt from PAGE TEXT containing the company name.
 - Return at most the first 10 companies. Pagination is out of scope.`;
 
-async function renderPage(url: string): Promise<RenderedPage> {
-  const browser = await chromium.launch({ headless: true });
+async function renderPage(browser: Browser, url: string): Promise<RenderedPage> {
+  const page = await browser.newPage({
+    locale: "en-US",
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/131.0.0.0 Safari/537.36",
+  });
   try {
-    const page = await browser.newPage({
-      locale: "en-US",
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/131.0.0.0 Safari/537.36",
-    });
     const response = await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout: 30_000,
@@ -88,7 +86,15 @@ async function renderPage(url: string): Promise<RenderedPage> {
       page.locator("body").innerText().catch(() => ""),
       page.locator("a[href]").evaluateAll((anchors, limit) =>
         anchors.slice(0, limit).map((anchor) => ({
-          text: (anchor.textContent ?? "").replace(/\s+/g, " ").trim(),
+          text: [
+            anchor.textContent,
+            anchor.getAttribute("aria-label"),
+            anchor.getAttribute("title"),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim(),
           url: (anchor as HTMLAnchorElement).href,
         })), MAX_LINKS),
       page.locator("iframe[src]").evaluateAll((frames) =>
@@ -105,7 +111,7 @@ async function renderPage(url: string): Promise<RenderedPage> {
       frameUrls,
     };
   } finally {
-    await browser.close();
+    await page.close();
   }
 }
 
@@ -182,6 +188,84 @@ function validatedCompanies(analysis: PageAnalysis, page: RenderedPage) {
     }));
 }
 
+const NON_COMPANY_HOSTS = new Set([
+  "facebook.com",
+  "instagram.com",
+  "linkedin.com",
+  "twitter.com",
+  "x.com",
+  "youtube.com",
+]);
+
+function hostname(value: string): string | null {
+  try {
+    return new URL(value).hostname.replace(/^www\./, "").toLocaleLowerCase("en-US");
+  } catch {
+    return null;
+  }
+}
+
+function sameOrSubdomain(left: string, right: string): boolean {
+  return left === right || left.endsWith(`.${right}`) || right.endsWith(`.${left}`);
+}
+
+export function findOfficialCompanyUrl(
+  companyName: string,
+  profile: RenderedPage,
+  directoryUrl: string,
+): string | null {
+  const profileHost = hostname(profile.url);
+  const directoryHost = hostname(directoryUrl);
+  const normalizedName = normalized(companyName);
+  const candidates = profile.links
+    .map((link) => {
+      const host = hostname(link.url);
+      if (
+        !host ||
+        (profileHost && sameOrSubdomain(host, profileHost)) ||
+        (directoryHost && sameOrSubdomain(host, directoryHost)) ||
+        [...NON_COMPANY_HOSTS].some((blocked) => sameOrSubdomain(host, blocked))
+      ) {
+        return null;
+      }
+
+      const label = normalized(link.text);
+      const score = /\b(?:company )?website\b|\bofficial site\b|\bvisit (?:our )?site\b/.test(label)
+        ? 3
+        : label.includes(normalizedName)
+          ? 2
+          : label === host || label === `www.${host}`
+            ? 1
+            : 0;
+      return score > 0 ? { url: link.url, score } : null;
+    })
+    .filter((candidate): candidate is { url: string; score: number } => candidate !== null)
+    .sort((left, right) => right.score - left.score);
+
+  return candidates[0]?.url ?? null;
+}
+
+async function resolveProfileWebsites(
+  browser: Browser,
+  companies: ReturnType<typeof validatedCompanies>,
+  directoryUrl: string,
+) {
+  return Promise.all(
+    companies.map(async (company) => {
+      if (company.company_url || !company.profile_url) return company;
+
+      try {
+        const profile = await renderPage(browser, company.profile_url);
+        if (profile.status !== null && profile.status >= 400) return company;
+        const companyUrl = findOfficialCompanyUrl(company.name, profile, directoryUrl);
+        return companyUrl ? { ...company, company_url: companyUrl } : company;
+      } catch {
+        return company;
+      }
+    }),
+  );
+}
+
 export async function findCompanies(
   event: string,
   directoryUrl: string,
@@ -191,38 +275,43 @@ export async function findCompanies(
     throw new Error("Set GOOGLE_GENERATIVE_AI_API_KEY before sourcing companies.");
   }
 
+  const browser = await chromium.launch({ headless: true });
   let currentUrl = directoryUrl;
-  for (let depth = 0; depth < MAX_DIRECTORY_DEPTH; depth += 1) {
-    const page = await renderPage(currentUrl);
-    if (page.status !== null && page.status >= 400) {
-      throw new Error(
-        `Could not load exhibitor directory: ${page.status} ${page.title}`,
-      );
-    }
+  try {
+    for (let depth = 0; depth < MAX_DIRECTORY_DEPTH; depth += 1) {
+      const page = await renderPage(browser, currentUrl);
+      if (page.status !== null && page.status >= 400) {
+        throw new Error(
+          `Could not load exhibitor directory: ${page.status} ${page.title}`,
+        );
+      }
 
-    const analysis = await analyzePage(apiKey, event, page);
-    const companies = validatedCompanies(analysis, page);
-    if (companies.length > 0) {
-      return {
-        sourced_at: new Date().toISOString(),
-        event: {
-          name: event,
-          exhibitor_directory_url: page.url,
-        },
-        companies,
-      };
-    }
+      const analysis = await analyzePage(apiKey, event, page);
+      const companies = validatedCompanies(analysis, page);
+      if (companies.length > 0) {
+        return {
+          sourced_at: new Date().toISOString(),
+          event: {
+            name: event,
+            exhibitor_directory_url: page.url,
+          },
+          companies: await resolveProfileWebsites(browser, companies, page.url),
+        };
+      }
 
-    const nextUrl = listedUrl(analysis.directoryUrl, page);
-    if (
-      depth + 1 >= MAX_DIRECTORY_DEPTH ||
-      analysis.pageType !== "links_to_directory" ||
-      !nextUrl ||
-      nextUrl === page.url
-    ) {
-      break;
+      const nextUrl = listedUrl(analysis.directoryUrl, page);
+      if (
+        depth + 1 >= MAX_DIRECTORY_DEPTH ||
+        analysis.pageType !== "links_to_directory" ||
+        !nextUrl ||
+        nextUrl === page.url
+      ) {
+        break;
+      }
+      currentUrl = nextUrl;
     }
-    currentUrl = nextUrl;
+  } finally {
+    await browser.close();
   }
 
   return {
