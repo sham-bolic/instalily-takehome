@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { getDatabase } from "../../lib/database.ts";
 import {
   resumeLivePipeline,
+  startLiveDecisionMakerPipeline,
+  startLiveOutreachPipeline,
   startLivePipeline,
   startLivePipelineForEvent,
 } from "../../lib/pipeline-runner.ts";
@@ -14,6 +16,8 @@ export async function POST(request: Request) {
   const dashboardUrl = new URL("/", request.url);
   const deleteRunIdValue = form.get("deleteRunId");
   const resumeRunIdValue = form.get("resumeRunId");
+  const decisionMakerRunIdValue = form.get("decisionMakerRunId");
+  const outreachRunIdValue = form.get("outreachRunId");
   const eventRunIdValue = form.get("eventRunId");
 
   if (deleteRunIdValue !== null) {
@@ -57,6 +61,60 @@ export async function POST(request: Request) {
         error instanceof Error
           ? error.message
           : "Could not start enrichment for that event.",
+      );
+      return NextResponse.redirect(sourceRunUrl, 303);
+    }
+  }
+
+  if (outreachRunIdValue !== null) {
+    const sourceRunId = Number(outreachRunIdValue);
+    if (!Number.isInteger(sourceRunId) || sourceRunId < 1) {
+      dashboardUrl.searchParams.set(
+        "error",
+        "Choose a valid completed decision-maker run.",
+      );
+      return NextResponse.redirect(dashboardUrl, 303);
+    }
+    try {
+      const runId = startLiveOutreachPipeline(sourceRunId);
+      return NextResponse.redirect(
+        new URL(`/runs/${runId}?tab=people`, request.url),
+        303,
+      );
+    } catch (error) {
+      const sourceRunUrl = new URL(`/runs/${sourceRunId}?tab=people`, request.url);
+      sourceRunUrl.searchParams.set(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Could not start personalized outreach.",
+      );
+      return NextResponse.redirect(sourceRunUrl, 303);
+    }
+  }
+
+  if (decisionMakerRunIdValue !== null) {
+    const sourceRunId = Number(decisionMakerRunIdValue);
+    if (!Number.isInteger(sourceRunId) || sourceRunId < 1) {
+      dashboardUrl.searchParams.set(
+        "error",
+        "Choose a valid completed run for decision-maker search.",
+      );
+      return NextResponse.redirect(dashboardUrl, 303);
+    }
+    try {
+      const runId = startLiveDecisionMakerPipeline(sourceRunId);
+      return NextResponse.redirect(
+        new URL(`/runs/${runId}?tab=people`, request.url),
+        303,
+      );
+    } catch (error) {
+      const sourceRunUrl = new URL(`/runs/${sourceRunId}?tab=qualified`, request.url);
+      sourceRunUrl.searchParams.set(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Could not start decision-maker search.",
       );
       return NextResponse.redirect(sourceRunUrl, 303);
     }

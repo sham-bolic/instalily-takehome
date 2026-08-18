@@ -6,6 +6,8 @@
     "event-sourcing": "node --env-file=.env backend/prototypes/event-sourcing.ts",
     "company-sourcing": "node --env-file=.env backend/prototypes/company-sourcing.ts",
     "company-enrichment": "node --env-file=.env backend/prototypes/company-enrichment.ts",
+    "decision-makers": "node --env-file=.env backend/prototypes/decision-maker-pipeline.ts",
+    "outreach": "node --env-file=.env backend/prototypes/outreach-pipeline.ts",
     "pipeline": "node --env-file=.env backend/prototypes/pipeline.ts",
     "dashboard": "next dev -p ${PORT:-4173}",
     "dashboard:legacy": "node --env-file=.env backend/prototypes/dashboard.ts",

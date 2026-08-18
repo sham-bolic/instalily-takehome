@@ -1,6 +1,12 @@
 import { enrichCompany } from "../../backend/prototypes/company-enrichment.ts";
 import { qualifyCompany } from "../../backend/prototypes/company-qualification.ts";
+import { startDecisionMakerPipeline } from "../../backend/prototypes/decision-maker-pipeline.ts";
+import { evaluateOutreachCandidates } from "../../backend/prototypes/outreach-candidate-evaluation.ts";
+import { draftPersonalizedOutreach } from "../../backend/prototypes/outreach-drafting.ts";
+import { startOutreachPipeline } from "../../backend/prototypes/outreach-pipeline.ts";
+import { researchOutreachSignals } from "../../backend/prototypes/outreach-research.ts";
 import { researchCompany } from "../../backend/prototypes/company-research.ts";
+import { searchDecisionMakers } from "../../backend/prototypes/decision-maker-search.ts";
 import { findCompanies } from "../../backend/prototypes/company-sourcing.ts";
 import { findEvents } from "../../backend/prototypes/event-sourcing.ts";
 import type { SavedICP } from "../../backend/prototypes/pipeline-database.ts";
@@ -28,6 +34,7 @@ export function startLivePipeline(icp: SavedICP): number {
       researchCompany: (company) => researchCompany(keys.tavily, company),
       enrichCompany: (company) => enrichCompany(keys.apollo, company),
       qualifyCompany: (input) => qualifyCompany(keys.gemini, input),
+      searchDecisionMakers: (input) => searchDecisionMakers(keys.surfe, input),
     },
   );
   return observe(execution);
@@ -50,8 +57,30 @@ export function startLivePipelineForEvent(
       researchCompany: (company) => researchCompany(keys.tavily, company),
       enrichCompany: (company) => enrichCompany(keys.apollo, company),
       qualifyCompany: (input) => qualifyCompany(keys.gemini, input),
+      searchDecisionMakers: (input) => searchDecisionMakers(keys.surfe, input),
     },
   );
+  return observe(execution);
+}
+
+export function startLiveDecisionMakerPipeline(sourceRunId: number): number {
+  const surfeApiKey = requiredKey("SURFE_API_KEY");
+  const execution = startDecisionMakerPipeline(
+    getDatabase(),
+    sourceRunId,
+    (input) => searchDecisionMakers(surfeApiKey, input),
+  );
+  return observe(execution);
+}
+
+export function startLiveOutreachPipeline(sourceRunId: number): number {
+  const tavilyApiKey = requiredKey("TAVILY_API_KEY");
+  const geminiApiKey = requiredKey("GOOGLE_GENERATIVE_AI_API_KEY");
+  const execution = startOutreachPipeline(getDatabase(), sourceRunId, {
+    evaluate: (input) => evaluateOutreachCandidates(geminiApiKey, input),
+    research: (input) => researchOutreachSignals(tavilyApiKey, input),
+    draft: (input) => draftPersonalizedOutreach(geminiApiKey, input),
+  });
   return observe(execution);
 }
 
@@ -59,6 +88,7 @@ export function resumeLivePipeline(sourceRunId: number): number {
   const tavilyApiKey = requiredKey("TAVILY_API_KEY");
   const apolloApiKey = requiredKey("APOLLO_API_KEY");
   const geminiApiKey = requiredKey("GOOGLE_GENERATIVE_AI_API_KEY");
+  const surfeApiKey = requiredKey("SURFE_API_KEY");
   const execution = startResumedPipeline(getDatabase(), sourceRunId, {
     findEvents: async () => {
       throw new Error("A resumed run must reuse persisted event discovery.");
@@ -67,6 +97,7 @@ export function resumeLivePipeline(sourceRunId: number): number {
     researchCompany: (company) => researchCompany(tavilyApiKey, company),
     enrichCompany: (company) => enrichCompany(apolloApiKey, company),
     qualifyCompany: (input) => qualifyCompany(geminiApiKey, input),
+    searchDecisionMakers: (input) => searchDecisionMakers(surfeApiKey, input),
   });
   return observe(execution);
 }
@@ -87,6 +118,7 @@ function providerKeys() {
     tavily: requiredKey("TAVILY_API_KEY"),
     apollo: requiredKey("APOLLO_API_KEY"),
     gemini: requiredKey("GOOGLE_GENERATIVE_AI_API_KEY"),
+    surfe: requiredKey("SURFE_API_KEY"),
   };
 }
 
