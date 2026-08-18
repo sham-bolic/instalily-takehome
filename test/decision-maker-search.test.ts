@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { searchDecisionMakers } from "../backend/decision-maker-search.ts";
 
-test("searches Surfe by company domain for the required roles", async () => {
+test("searches Surfe by company domain and seniority without functional titles", async () => {
   let requestUrl = "";
   let requestInit: RequestInit | undefined;
   const result = await searchDecisionMakers(
@@ -40,14 +40,6 @@ test("searches Surfe by company domain for the required roles", async () => {
   assert.deepEqual(JSON.parse(String(requestInit?.body)), {
     companies: { domains: ["averydennison.com"] },
     people: {
-      jobTitles: [
-        "Product Development",
-        "Innovation",
-        "Research and Development",
-        "R&D",
-        "Coatings",
-        "Protective Solutions",
-      ],
       seniorities: ["VP", "Director", "Head"],
     },
     limit: 10,
@@ -55,6 +47,9 @@ test("searches Surfe by company domain for the required roles", async () => {
   });
   assert.equal(result.people[0]?.firstName, "Diana");
   assert.equal(result.company.domain, "averydennison.com");
+  assert.deepEqual(result.criteria, {
+    seniorities: ["VP", "Director", "Head"],
+  });
 });
 
 test("reports Surfe errors without exposing the API key", async () => {

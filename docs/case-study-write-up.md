@@ -37,7 +37,7 @@ Gemini assesses the assembled profile against the complete ICP, including busine
 
 ### 4. Find and evaluate decision-makers
 
-Only high-fit companies proceed to Surfe. The search uses the verified company domain and looks for VPs, Directors, or Heads in Product Development, Innovation, R&D, Coatings, and Protective Solutions. Gemini evaluates all returned people together using their title, department, seniority, the ICP, and the company rationale. Application code rejects invented, missing, or duplicate identities and selects contacts scoring at least 70.
+Only high-fit companies proceed to Surfe. The search uses the verified company domain and filters only for senior decision-makers: VPs, Directors, and Heads. It does not hard-code project-specific functions or titles. Gemini does the ICP-specific filtering by evaluating all returned people together using their title, department, seniority, the ICP, and the company rationale. Application code rejects invented, missing, or duplicate identities and selects contacts scoring at least 70.
 
 ### 5. Draft reviewed outreach
 

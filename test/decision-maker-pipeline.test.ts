@@ -30,7 +30,6 @@ test("creates a linked run and searches only high-fit profiles", async () => {
           searched_at: "2026-08-18T00:00:00.000Z",
           company: input,
           criteria: {
-            titles: ["Product Development"],
             seniorities: ["VP", "Director", "Head"],
           },
           people: [

@@ -196,7 +196,6 @@ test("researches every sourced company before Apollo and isolates provider failu
             searched_at: "2026-08-17T00:00:00.000Z",
             company: input,
             criteria: {
-              titles: ["Product Development"],
               seniorities: ["VP", "Director", "Head"],
             },
             people: [

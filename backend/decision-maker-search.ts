@@ -3,15 +3,6 @@ import { z } from "zod";
 const SURFE_PEOPLE_SEARCH_URL = "https://api.surfe.com/v2/people/search";
 const MAX_DECISION_MAKERS = 10;
 
-export const DECISION_MAKER_TITLES = [
-  "Product Development",
-  "Innovation",
-  "Research and Development",
-  "R&D",
-  "Coatings",
-  "Protective Solutions",
-] as const;
-
 export const DECISION_MAKER_SENIORITIES = ["VP", "Director", "Head"] as const;
 
 export const decisionMakerSchema = z.object({
@@ -42,7 +33,6 @@ export type DecisionMakerSearchResult = {
   searched_at: string;
   company: DecisionMakerSearchInput;
   criteria: {
-    titles: string[];
     seniorities: string[];
   };
   people: DecisionMaker[];
@@ -63,7 +53,6 @@ export async function searchDecisionMakers(
   const request = {
     companies: { domains: [domain] },
     people: {
-      jobTitles: [...DECISION_MAKER_TITLES],
       seniorities: [...DECISION_MAKER_SENIORITIES],
     },
     limit: MAX_DECISION_MAKERS,
@@ -97,7 +86,6 @@ export async function searchDecisionMakers(
     searched_at: new Date().toISOString(),
     company: { companyName, domain },
     criteria: {
-      titles: [...DECISION_MAKER_TITLES],
       seniorities: [...DECISION_MAKER_SENIORITIES],
     },
     people: parsed.data.people,

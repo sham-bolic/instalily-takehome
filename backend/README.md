@@ -7,8 +7,8 @@ The sourcing flow is split into independently testable stages:
 3. Company research: one neutral Tavily search per company resolves identity and collects general public-web information
 4. Company enrichment: the resolved domain is optionally matched to Apollo and merged with public-web research
 5. Company qualification: enriched profile and ICP in, evidence-backed assessment out
-6. Decision-maker search: high-fit leads are searched in Surfe for relevant VPs, Directors, and Heads
-7. Outbound generation: Gemini qualifies each person for outreach, Tavily researches company signals, and Gemini drafts evidence-grounded messages
+6. Decision-maker search: high-fit leads are searched in Surfe for VPs, Directors, and Heads without restricting business function
+7. Outbound generation: Gemini uses the ICP and company context to qualify each person for outreach, Tavily researches company signals, and Gemini drafts evidence-grounded messages
 
 All stages are connected by a lean pipeline orchestrator. Company sourcing and qualification use Gemini through the Vercel AI SDK. The model defaults to `gemini-3.5-flash-lite` and can be overridden with `GOOGLE_GENERATIVE_AI_MODEL`.
 
@@ -31,7 +31,7 @@ The pipeline:
 6. Reuses earlier successful Apollo artifacts when a company domain is already known.
 7. Assesses each enriched company against the ICP with Gemini and validates the structured response.
 8. Ranks companies by categorical fit and confidence.
-9. Searches Surfe only for companies rated high fit, using the verified company domain and the Product Development, Innovation, R&D, Coatings, and Protective Solutions role families.
+9. Searches Surfe only for companies rated high fit, using the verified company domain and VP, Director, and Head seniority filters. The search does not hard-code business functions; Gemini applies the ICP-specific relevance filter afterward.
 10. Saves full names, titles, seniority, department, country, and LinkedIn URLs to each qualified company profile.
 11. Scores every matched person for outreach relevance, researches company signals for selected people, and drafts personalized messages.
 12. Continues after individual research, enrichment, qualification, decision-maker search, or outbound generation failures and records them for inspection.
@@ -165,6 +165,6 @@ Apollo charges one credit per organization enrichment. The script makes no reque
 - Company extraction currently recognizes linked exhibitor profiles and HTML tables with company and booth columns. Other directory layouts will need additional extraction strategies.
 - Plain-text exhibitor tables, such as the SUN 'n FUN directory, do not provide company websites. The pipeline uses one Tavily search to resolve them, but ambiguous companies remain unresolved rather than being guessed.
 - Apollo fields can be absent, especially for small or private companies. Missing values remain `null`, and the public-web research remains available when Apollo has no match.
-- Surfe title matching can include people from an unrelated business unit. Gemini evaluates all returned candidates against the ICP, while application code validates candidate identity and applies the relevance threshold before drafting.
+- The intentionally broad Surfe seniority search can include people from unrelated business units. Gemini evaluates all returned candidates against the ICP, while application code validates candidate identity and applies the relevance threshold before drafting.
 - Qualification receives the assembled profile, including the raw Apollo response. That response has not yet been normalized into first-class evidence claims and source records.
 - Free Gemini API quotas can change and may throttle a multi-company run. Qualification failures remain isolated to the affected company.
